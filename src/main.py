@@ -24,9 +24,9 @@ LONG_PRESS_MS     = 900
 # ─── RAILWAY BACKEND ─────────────────────────────────────────────────────────
 # Set these to your Railway app URLs.
 # Leave empty to disable (status will show "НЕМА API").
-BACKEND_SUBSCRIBERS_URL = ""   # e.g. "https://your-app.up.railway.app/api/subscribers"
-BACKEND_AVATAR_URL      = ""   # e.g. "https://your-app.up.railway.app/api/avatar-rgb565"
-DEVICE_API_TOKEN        = ""   # Optional: set if you enabled token auth on the backend
+BACKEND_SUBSCRIBERS_URL = "https://bfu-youytube-production.up.railway.app/api/subscribers"
+BACKEND_AVATAR_URL      = "https://bfu-youytube-production.up.railway.app/api/avatar-rgb565"
+DEVICE_API_TOKEN        = "BFU_ESP32_YT_9kP7xQ_2026"
 
 YOUTUBE_UPDATE_MS = 60000  # Refresh interval in milliseconds (60 seconds)
 
@@ -646,7 +646,7 @@ def draw_wifi_portal_qr_page():
     screen_mode = "WIFI_PORTAL"
     display.fill(BLACK)
     draw_header("WI-FI SETUP")
-    display.ua_text("СКАНУЙ QR", 72, 45, CYAN, BLACK, 1)
+    display.ua_text("СКАНУЙ КОД", 66, 45, CYAN, BLACK, 1)
     draw_qr(QR_WIFI_SETUP, 54, 62, 4)
     display.ua_text("BFU-SETUP", 72, 198, YELLOW, BLACK, 1)
     draw_wifi_footer("PASS: 12345678", "IP: 192.168.4.1")
