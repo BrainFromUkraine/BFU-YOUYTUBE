@@ -23,9 +23,16 @@ ENCODER_THRESHOLD = 2
 LONG_PRESS_MS     = 900
 
 # ─── YOUTUBE API ─────────────────────────────────────────────────────────────
-# IMPORTANT: Paste your own YouTube Data API v3 key below.
-# Do NOT publish this file with your real API key.
-# Get your key at: https://console.cloud.google.com/
+# RECOMMENDED: Use the Railway backend so the API key never lives on the device.
+# Set BACKEND_SUBSCRIBERS_URL to your Railway app URL and leave YOUTUBE_API_KEY
+# as the placeholder below.
+# See docs/en/backend.md for the full Railway deployment guide.
+#
+# If you prefer to call YouTube directly from the ESP32 (less secure),
+# paste your API key into YOUTUBE_API_KEY and leave BACKEND_SUBSCRIBERS_URL empty.
+BACKEND_SUBSCRIBERS_URL = ""   # e.g. "https://your-app.up.railway.app/api/subscribers"
+DEVICE_API_TOKEN        = ""   # Optional: set if you enabled token auth on the backend
+
 YOUTUBE_API_KEY    = "PASTE_YOUR_API_KEY_HERE"
 YOUTUBE_CHANNEL_ID = "UC---ig4FdhPV3bSgE9KPJhg"
 YOUTUBE_UPDATE_MS  = 60000  # Refresh interval in milliseconds (60 seconds)

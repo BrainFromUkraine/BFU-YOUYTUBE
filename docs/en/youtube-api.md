@@ -51,7 +51,15 @@ The part after `/channel/` is your Channel ID.
 
 ---
 
-## Step 5 — Add the Key to the Firmware
+## Step 5 — Add the Key to the Firmware or Backend
+
+### Option A — Railway Backend (Recommended)
+
+The **Railway backend** is the recommended production method. Your API key is stored as a Railway environment variable and never touches the ESP32 firmware.
+
+See **[backend.md](backend.md)** for the full Railway deployment guide.
+
+### Option B — Direct Key in Firmware
 
 1. Open `src/main.py` in Thonny or any text editor.
 2. Find this line near the top:

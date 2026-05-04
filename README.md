@@ -84,6 +84,20 @@ A compact, standalone YouTube subscriber counter that runs entirely on an ESP32-
 
 ## YouTube API Setup
 
+### Option A — Railway Backend (Recommended)
+
+The **Railway backend** is the recommended production method. Your API key stays on the server — it is never stored in the ESP32 firmware.
+
+```
+ESP32  ──►  https://your-app.up.railway.app/api/subscribers  ──►  YouTube Data API v3
+```
+
+See **[docs/en/backend.md](docs/en/backend.md)** for the full Railway deployment guide.
+
+### Option B — Direct API Key in Firmware
+
+You can also put the API key directly in the firmware (simpler, but less secure):
+
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project (e.g. `BFU-Counter`)
 3. Navigate to **APIs & Services → Library**
@@ -98,6 +112,8 @@ A compact, standalone YouTube subscriber counter that runs entirely on an ESP32-
    with your actual key.
 
 > ⚠️ **Security:** Never publish your real API key in a public repository. The `.gitignore` file already excludes `config.py` and `secrets.py`.
+
+> ℹ️ **Note:** The YouTube Data API v3 returns a **public subscriber count**, which YouTube rounds for channels with more than 1,000 subscribers. This is a YouTube platform limitation and cannot be changed in the firmware or backend.
 
 ---
 
