@@ -31,6 +31,7 @@ LONG_PRESS_MS     = 900
 # If you prefer to call YouTube directly from the ESP32 (less secure),
 # paste your API key into YOUTUBE_API_KEY and leave BACKEND_SUBSCRIBERS_URL empty.
 BACKEND_SUBSCRIBERS_URL = ""   # e.g. "https://your-app.up.railway.app/api/subscribers"
+BACKEND_AVATAR_URL      = ""   # e.g. "https://your-app.up.railway.app/api/avatar-rgb565"
 DEVICE_API_TOKEN        = ""   # Optional: set if you enabled token auth on the backend
 
 YOUTUBE_API_KEY    = "PASTE_YOUR_API_KEY_HERE"
@@ -625,18 +626,74 @@ def update_menu_selection(old_index, new_index):
     draw_menu_item(new_index)
 
 
+# ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
+AVATAR_X    = 88   # top-left x of 64x64 avatar on display
+AVATAR_Y    = 50   # top-left y of 64x64 avatar on display
+AVATAR_SIZE = 64   # must match backend AVATAR_SIZE
+
+
+def fetch_channel_avatar():
+    """
+    Fetch 64x64 RGB565 pixel array from backend and draw it on the display.
+    Returns True on success, False on failure (caller shows page without avatar).
+    Memory: processes pixels into bytearray, then discards the list.
+    """
+    if not BACKEND_AVATAR_URL:
+        return False
+    if not wlan.isconnected():
+        return False
+    try:
+        gc.collect()
+        headers = {}
+        if DEVICE_API_TOKEN:
+            headers["X-Device-Token"] = DEVICE_API_TOKEN
+        response = urequests.get(BACKEND_AVATAR_URL, headers=headers)
+        data     = response.json()
+        response.close()
+        gc.collect()
+
+        if not data.get("ok"):
+            print("Avatar fetch error:", data.get("error", "unknown"))
+            return False
+
+        pixels = data["pixels"]   # list of "FFFF" hex strings
+        w      = int(data.get("width",  AVATAR_SIZE))
+        h      = int(data.get("height", AVATAR_SIZE))
+
+        # Convert hex strings to big-endian RGB565 bytearray
+        buf = bytearray(w * h * 2)
+        for i, px in enumerate(pixels):
+            val       = int(px, 16)
+            buf[i*2]     = (val >> 8) & 0xFF
+            buf[i*2 + 1] = val & 0xFF
+
+        # Free the pixel list before drawing
+        del pixels
+        gc.collect()
+
+        display.write_block(AVATAR_X, AVATAR_Y, w, h, buf)
+        del buf
+        gc.collect()
+        print("Avatar drawn:", w, "x", h)
+        return True
+
+    except Exception as e:
+        print("Avatar fetch/draw error:", e)
+        return False
+
+
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
 def draw_subscriber_number():
-    display.fill_rect(35, 120, 170, 38, BLACK)
+    display.fill_rect(35, 132, 170, 28, BLACK)
     count_text = str(subscriber_count)
     count_w    = len(count_text) * 6 * 3
     count_x    = (240 - count_w) // 2
-    display.ua_text(count_text, count_x, 125, GREEN, BLACK, 3)
+    display.ua_text(count_text, count_x, 132, GREEN, BLACK, 3)
 
 
 def draw_subscriber_status():
-    display.fill_rect(35, 158, 170, 18, BLACK)
-    display.ua_text(youtube_status_text, center_x(youtube_status_text, 1), 160, WHITE, BLACK, 1)
+    display.fill_rect(35, 180, 170, 12, BLACK)
+    display.ua_text(youtube_status_text, center_x(youtube_status_text, 1), 180, WHITE, BLACK, 1)
 
 
 def draw_subscribers_page():
@@ -644,16 +701,24 @@ def draw_subscribers_page():
     screen_mode = "SUBSCRIBERS"
     display.fill(BLACK)
     draw_header("")
-    display.fill_rect(25, 58, 190, 120, DARK)
-    display.fill_rect(35, 68, 170, 100, BLACK)
-    display.ua_text("YOUTUBE КАНАЛ", 50, 78,  CYAN,   BLACK, 1)
-    display.ua_text("ПІДПИСНИКИ",    54, 100, YELLOW, BLACK, 1)
+
+    # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
+    display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
+
+    # Labels
+    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 160, YELLOW, BLACK, 1)
+
     draw_subscriber_number()
     draw_subscriber_status()
     draw_back_footer()
+
+    # Fetch subscriber count first (fast)
     fetch_youtube_subscribers()
     draw_subscriber_number()
     draw_subscriber_status()
+
+    # Then fetch and draw avatar (may take a moment)
+    fetch_channel_avatar()
 
 
 # ─── STATUS PAGE ─────────────────────────────────────────────────────────────

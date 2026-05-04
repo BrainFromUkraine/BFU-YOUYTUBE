@@ -85,6 +85,7 @@ Open `src/main.py` and update the backend URL constants near the top of the file
 # Set this to your Railway backend URL.
 # Leave YOUTUBE_API_KEY as the placeholder — the key lives on the server, not here.
 BACKEND_SUBSCRIBERS_URL = "https://YOUR-APP-NAME.up.railway.app/api/subscribers"
+BACKEND_AVATAR_URL      = "https://YOUR-APP-NAME.up.railway.app/api/avatar-rgb565"
 DEVICE_API_TOKEN        = ""   # Set if you enabled token auth on the backend
 ```
 
@@ -189,6 +190,47 @@ If the YouTube API is temporarily unavailable, the backend returns the last cach
 | `YOUTUBE_CHANNEL_ID` | ✅ Yes | — | Channel ID starting with `UC` |
 | `CACHE_TTL_SECONDS` | No | `30` | Cache duration in seconds |
 | `DEVICE_API_TOKEN` | No | *(disabled)* | If set, ESP32 must send matching `X-Device-Token` header |
+
+---
+
+## API Endpoints
+
+### `GET /api/subscribers`
+Returns the subscriber count. Used by the ESP32 for the main counter display.
+
+### `GET /api/channel`
+Returns channel title, subscriber count, and avatar URL. Same cache as `/api/subscribers`.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "channel_id": "UCxxxxx",
+  "title": "BFU Electronics",
+  "subscribers": 4670,
+  "avatar_url": "https://yt3.ggpht.com/...",
+  "updated_at": "2024-01-01T12:00:00+00:00",
+  "stale": false
+}
+```
+
+### `GET /api/avatar-rgb565`
+Downloads the channel avatar, resizes it to **64×64 pixels**, converts each pixel to **RGB565** format, and returns a JSON array of hex pixel strings. The conversion is cached on the server — it only runs once per unique avatar URL.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "width": 64,
+  "height": 64,
+  "pixels": ["FFFF", "0000", "F800", "..."]
+}
+```
+
+The ESP32 firmware calls this endpoint once when the subscriber screen opens, converts the hex strings to a `bytearray`, and renders the avatar using `display.write_block()`. The pixel list is freed from RAM immediately after drawing.
+
+### `GET /`
+Health check — returns service status and configuration summary.
 
 ---
 

@@ -9,6 +9,7 @@ A compact, standalone YouTube subscriber counter that runs entirely on an ESP32-
 ## Features
 
 - 🟢 **Live subscriber count** — fetches data from YouTube Data API v3 every 60 seconds
+- 🖼️ **Channel avatar** — displays the YouTube channel avatar on the subscriber screen (requires Railway backend)
 - 📡 **Wi-Fi setup portal** — SoftAP + web form at `192.168.4.1`, no app needed
 - 📷 **QR code screen** — scan with your phone to connect to the setup AP instantly
 - 🎛️ **Rotary encoder navigation** — scroll menu, short click to select, long click to go back
