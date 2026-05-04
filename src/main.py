@@ -412,6 +412,83 @@ QR_WIFI_SETUP = [
 ]
 
 
+# ─── WI-FI PERSISTENT CONFIG (JSON) ─────────────────────────────────────────
+WIFI_CONFIG_FILE = "wifi_config.json"
+
+
+def save_wifi_config(ssid, password):
+    """Save Wi-Fi credentials to wifi_config.json on the ESP32 filesystem."""
+    try:
+        cfg = {"ssid": ssid, "password": password}
+        with open(WIFI_CONFIG_FILE, "w") as f:
+            ujson.dump(cfg, f)
+        print("WiFi config saved:", ssid)
+    except Exception as e:
+        print("save_wifi_config error:", e)
+
+
+def load_wifi_config():
+    """Load Wi-Fi credentials from wifi_config.json. Returns (ssid, password) or (None, None)."""
+    try:
+        with open(WIFI_CONFIG_FILE, "r") as f:
+            cfg = ujson.load(f)
+        ssid     = cfg.get("ssid", "")
+        password = cfg.get("password", "")
+        if ssid:
+            print("WiFi config loaded:", ssid)
+            return ssid, password
+        return None, None
+    except Exception as e:
+        print("load_wifi_config error:", e)
+        return None, None
+
+
+def delete_wifi_config():
+    """Delete saved Wi-Fi credentials (for future 'Forget Wi-Fi' feature)."""
+    try:
+        import uos
+        uos.remove(WIFI_CONFIG_FILE)
+        print("WiFi config deleted")
+    except Exception as e:
+        print("delete_wifi_config error:", e)
+
+
+def connect_saved_wifi():
+    """Try to connect to the saved Wi-Fi network on boot. Non-blocking with timeout."""
+    global wifi_status_text
+    ssid, password = load_wifi_config()
+    if ssid is None:
+        wifi_status_text = "НЕ ПІДКЛЮЧЕНО"
+        print("No saved WiFi config")
+        return False
+    try:
+        wlan.active(True)
+        if wlan.isconnected():
+            wifi_status_text = "WI-FI OK"
+            print("Already connected:", wlan.ifconfig()[0])
+            return True
+        print("Auto-connecting to:", ssid)
+        wlan.connect(ssid, password)
+        start = time.ticks_ms()
+        while not wlan.isconnected():
+            if time.ticks_diff(time.ticks_ms(), start) > 15000:
+                break
+            time.sleep_ms(300)
+        if wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+            wifi_status_text = "WI-FI OK"
+            print("Auto-connected:", ip)
+            return True
+        else:
+            wifi_status_text = "WI-FI ПОМИЛКА"
+            print("Auto-connect failed")
+            return False
+    except Exception as e:
+        print("connect_saved_wifi error:", e)
+        wifi_status_text = "WI-FI ПОМИЛКА"
+        return False
+
+
 # ─── UTILITY ─────────────────────────────────────────────────────────────────
 def center_x(text, scale):
     """Return the X coordinate that horizontally centres text on the 240-px display."""
@@ -467,20 +544,24 @@ def get_active_menu_items():
 
 def draw_header(title):
     display.fill_rect(0, 0, 240, 38, BLUE)
-    display.text("BFU ELECTRONICS", 59, 24, WHITE, BLUE)
+    bfu_text = "BFU ELECTRONICS"
+    display.text(bfu_text, (240 - len(bfu_text) * 8) // 2, 24, WHITE, BLUE)
     if title != "":
         display.ua_text(title, center_x(title, 1), 8, CYAN, BLUE, 1)
 
 
 def draw_footer():
     display.fill_rect(0, 212, 240, 28, DARK)
-    display.ua_text("ОБЕРТАЙ = МЕНЮ",  45, 216, WHITE, DARK, 1)
-    display.ua_text("НАТИСНИ = ВИБІР", 42, 228, CYAN,  DARK, 1)
+    t1 = "ОБЕРТАЙ = МЕНЮ"
+    t2 = "НАТИСНИ = ВИБІР"
+    display.ua_text(t1, center_x(t1, 1), 216, WHITE, DARK, 1)
+    display.ua_text(t2, center_x(t2, 1), 228, CYAN,  DARK, 1)
 
 
 def draw_back_footer():
     display.fill_rect(0, 212, 240, 28, DARK)
-    display.ua_text("НАТИСНИ = НАЗАД", 42, 222, CYAN, DARK, 1)
+    t = "НАТИСНИ = НАЗАД"
+    display.ua_text(t, center_x(t, 1), 222, CYAN, DARK, 1)
 
 
 def draw_wifi_footer(text1, text2):
@@ -519,12 +600,13 @@ def draw_menu():
     if current_menu == "MAIN":
         draw_header("")
     elif current_menu == "SETTINGS":
-        draw_header("НАЛАШТУВАННЯ")
+        draw_header("")
     else:
         draw_header("")
 
     if current_menu == "SETTINGS":
-        display.ua_text("ПАРАМЕТРИ", 72, 52, CYAN, BLACK, 1)
+        t = "НАЛАШТУВАННЯ"
+        display.ua_text(t, center_x(t, 2), 44, CYAN, BLACK, 2)
 
     items = get_active_menu_items()
     for i in range(len(items)):
@@ -555,7 +637,7 @@ def draw_subscribers_page():
     global screen_mode
     screen_mode = "SUBSCRIBERS"
     display.fill(BLACK)
-    draw_header("ПІДПИСНИКИ")
+    draw_header("")
     display.fill_rect(25, 58, 190, 120, DARK)
     display.fill_rect(35, 68, 170, 100, BLACK)
     display.ua_text("YOUTUBE КАНАЛ", 50, 78,  CYAN,   BLACK, 1)
@@ -1026,6 +1108,7 @@ def connect_to_selected_wifi(ssid, password):
             ip = wlan.ifconfig()[0]
             wifi_status_text = "WI-FI OK"
             print("WiFi connected:", ip)
+            save_wifi_config(ssid, password)
             stop_wifi_setup_portal()
             draw_wifi_result_page(True, ip)
             return True
@@ -1212,6 +1295,7 @@ def handle_long_click():
 
 
 # ─── STARTUP ─────────────────────────────────────────────────────────────────
+connect_saved_wifi()
 draw_menu()
 
 print("=================================")

@@ -57,6 +57,19 @@
 
 ---
 
+## Device Does Not Reconnect Automatically After Reboot
+
+**Symptoms:** After rebooting, the device does not connect to Wi-Fi automatically.
+
+**Possible causes and fixes:**
+
+1. **Not yet configured** — If you have never connected through the BFU-SETUP portal, the `wifi_config.json` file does not exist yet. Connect for the first time via **НАЛАШТУВАННЯ → WI-FI**.
+2. **Network unavailable** — If the router is off or out of range, the device will time out after ~15 seconds and launch the menu normally. This is expected behaviour.
+3. **Password changed** — If your Wi-Fi password has changed, navigate to **НАЛАШТУВАННЯ → WI-FI** and reconnect. The new credentials will overwrite the old `wifi_config.json`.
+4. **Corrupted config file** — If `wifi_config.json` is corrupted, the device will still boot. Reconnect through the portal to restore the file.
+
+---
+
 ## YouTube API Error
 
 **Symptoms:** The subscriber screen shows `API ПОМИЛКА` (API Error).

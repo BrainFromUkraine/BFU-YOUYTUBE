@@ -94,5 +94,16 @@ The device includes a built-in Wi-Fi setup portal. When you select **Settings �
 
 - The portal stops automatically after a successful Wi-Fi connection.
 - Press the encoder button at any time to cancel the portal and return to the menu.
-- The device does not save Wi-Fi credentials between reboots. You will need to reconnect after each power cycle. (This is a MicroPython limitation — persistent storage can be added manually if needed.)
 - The portal page scans for nearby networks each time it loads. If your network does not appear, move the device closer to your router and reload the page.
+
+---
+
+## Automatic Reconnection After Reboot
+
+After the first successful setup through the **BFU-SETUP** portal, the device automatically saves the Wi-Fi credentials to `wifi_config.json` on the ESP32 filesystem.
+
+- After reboot, the ESP32 reconnects automatically to the saved network (timeout ~15 seconds).
+- If the saved Wi-Fi is unavailable or the password has changed, the device still boots normally and the menu remains fully functional.
+- To configure a new network, navigate to **НАЛАШТУВАННЯ → WI-FI** and connect again through the portal.
+
+> ⚠️ **Security:** `wifi_config.json` stores the Wi-Fi password in plain text. Do not commit this file to a public repository. It is already listed in `.gitignore`.

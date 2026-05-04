@@ -150,6 +150,7 @@ A compact, standalone YouTube subscriber counter that runs entirely on an ESP32-
 - **Do not publish your real YouTube API key** in any public repository.
 - The `YOUTUBE_API_KEY` in `src/main.py` is set to `"PASTE_YOUR_API_KEY_HERE"` — replace it locally before uploading to the device.
 - `config.py` and `secrets.py` are listed in `.gitignore` and will not be tracked by Git.
+- **`wifi_config.json`** stores your Wi-Fi password in plain text on the ESP32 filesystem. Do not commit it to any repository. It is already listed in `.gitignore`.
 
 ---
 

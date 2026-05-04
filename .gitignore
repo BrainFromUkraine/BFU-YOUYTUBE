@@ -17,3 +17,6 @@ config.py
 
 # MicroPython compiled bytecode
 *.mpy
+
+# Wi-Fi credentials — NEVER commit this file
+wifi_config.json
