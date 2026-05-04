@@ -438,8 +438,16 @@ def sync_time():
     try:
         ntptime.settime()
         print("NTP time synced")
+        print("UTC:", time.localtime())
+        print("LOCAL:", get_local_time())
     except Exception as e:
         print("NTP sync failed:", e)
+
+
+# ─── LOCAL TIME ──────────────────────────────────────────────────────────────
+def get_local_time():
+    """Return local time tuple adjusted by UK_TIME_OFFSET_HOURS."""
+    return time.localtime(time.time() + UK_TIME_OFFSET_HOURS * 3600)
 
 
 # ─── UTILITY ─────────────────────────────────────────────────────────────────
@@ -484,14 +492,15 @@ def fetch_youtube_subscribers():
 
 
 # ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
-AVATAR_X    = 104  # centred: (240-32)//2
-AVATAR_Y    = 55
-AVATAR_SIZE = 32   # must match backend AVATAR_SIZE
+AVATAR_X    = 96   # centred: (240-48)//2
+AVATAR_Y    = 48
+AVATAR_SIZE = 48   # must match backend AVATAR_SIZE
 
 
 def fetch_channel_avatar():
     """
-    Fetch 32x32 raw RGB565 binary from backend (application/octet-stream, 2048 bytes).
+    Fetch AVATAR_SIZE x AVATAR_SIZE raw RGB565 binary from backend
+    (application/octet-stream, AVATAR_SIZE * AVATAR_SIZE * 2 bytes).
     No JSON parsing — read bytes directly and write_block().
     """
     if not BACKEND_AVATAR_URL:
@@ -508,8 +517,10 @@ def fetch_channel_avatar():
         response.close()
         gc.collect()
 
-        if len(buf) != AVATAR_SIZE * AVATAR_SIZE * 2:
-            print("Avatar size mismatch:", len(buf))
+        expected = AVATAR_SIZE * AVATAR_SIZE * 2
+        print("Avatar bytes:", len(buf), "expected:", expected)
+        if len(buf) != expected:
+            print("Avatar size mismatch — skipping draw")
             return False
 
         display.write_block(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, buf)
@@ -602,7 +613,7 @@ def update_menu_selection(old_index, new_index):
 # ─── CLOCK ───────────────────────────────────────────────────────────────────
 def draw_clock():
     """Draw HH:MM centred at y=178 (scale=3), clearing only the clock area first."""
-    t    = time.localtime(time.time() + UK_TIME_OFFSET_HOURS * 3600)
+    t    = get_local_time()
     txt  = "{:02d}:{:02d}".format(t[3], t[4])
     display.fill_rect(40, 176, 160, 32, BLACK)
     display.ua_text(txt, center_x(txt, 3), 178, CYAN, BLACK, 3)
@@ -610,11 +621,11 @@ def draw_clock():
 
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
 def draw_subscriber_number():
-    display.fill_rect(35, 132, 170, 28, BLACK)
+    display.fill_rect(35, 112, 170, 28, BLACK)
     count_text = str(subscriber_count)
     count_w    = len(count_text) * 6 * 3
     count_x    = (240 - count_w) // 2
-    display.ua_text(count_text, count_x, 132, GREEN, BLACK, 3)
+    display.ua_text(count_text, count_x, 112, GREEN, BLACK, 3)
 
 
 def draw_subscribers_page():
@@ -624,10 +635,11 @@ def draw_subscribers_page():
     draw_header("")
     # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
     display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
-    # Label
-    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 160, YELLOW, BLACK, 1)
+    # Subscriber number below avatar (y=112)
     draw_subscriber_number()
-    # No footer, no status text — clock occupies the bottom area
+    # Label below number (y=146)
+    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 146, YELLOW, BLACK, 1)
+    # Clock at bottom (y=178)
     draw_clock()
     # Fetch data
     fetch_youtube_subscribers()
@@ -1073,7 +1085,7 @@ while True:
                 draw_subscriber_number()
 
         # Redraw clock only when the minute changes
-        _now_min = time.localtime(time.time() + UK_TIME_OFFSET_HOURS * 3600)[4]
+        _now_min = get_local_time()[4]
         if _now_min != _last_clock_minute:
             _last_clock_minute = _now_min
             draw_clock()

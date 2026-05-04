@@ -36,7 +36,7 @@ DEVICE_API_TOKEN   = os.environ.get("DEVICE_API_TOKEN", "")
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/channels"
 REQUEST_TIMEOUT = 10  # seconds
 
-AVATAR_SIZE = 32  # pixels — must match ESP32 firmware
+AVATAR_SIZE = 48  # pixels — must match ESP32 firmware
 
 # ─── IN-MEMORY CACHE ─────────────────────────────────────────────────────────
 _cache: dict = {
@@ -320,10 +320,10 @@ async def get_channel(request: Request):
 @app.get("/api/avatar-rgb565", summary="Get channel avatar as raw RGB565 binary")
 async def get_avatar_rgb565(request: Request):
     """
-    Downloads the channel avatar, resizes to AVATAR_SIZE x AVATAR_SIZE (32x32),
+    Downloads the channel avatar, resizes to AVATAR_SIZE x AVATAR_SIZE (48x48),
     converts to raw big-endian RGB565 bytes, and returns them as application/octet-stream.
 
-    Response body: AVATAR_SIZE * AVATAR_SIZE * 2 bytes (2048 bytes for 32x32).
+    Response body: AVATAR_SIZE * AVATAR_SIZE * 2 bytes (4608 bytes for 48x48).
     No JSON wrapper — the ESP32 reads response.content directly into a bytearray
     and passes it to display.write_block().
 
@@ -350,13 +350,19 @@ async def get_avatar_rgb565(request: Request):
             "error": "No avatar URL available for this channel",
         })
 
+    _expected_bytes = AVATAR_SIZE * AVATAR_SIZE * 2
+    _size_header = {
+        "X-Avatar-Size": f"{AVATAR_SIZE}x{AVATAR_SIZE}",
+        "X-Bytes": str(_expected_bytes),
+    }
+
     # Return cached binary if URL hasn't changed
     if _avatar_cache["url"] == avatar_url and _avatar_cache["data"] is not None:
         logger.info("Returning cached avatar binary (%d bytes)", len(_avatar_cache["data"]))
         return Response(
             content=_avatar_cache["data"],
             media_type="application/octet-stream",
-            headers={"X-Avatar-Size": str(AVATAR_SIZE)},
+            headers=_size_header,
         )
 
     # Convert avatar to raw binary
@@ -367,7 +373,7 @@ async def get_avatar_rgb565(request: Request):
         return Response(
             content=raw,
             media_type="application/octet-stream",
-            headers={"X-Avatar-Size": str(AVATAR_SIZE)},
+            headers=_size_header,
         )
     except Exception as e:
         logger.error("Avatar conversion failed: %s", e)
