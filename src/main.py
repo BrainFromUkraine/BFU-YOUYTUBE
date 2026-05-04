@@ -1,6 +1,5 @@
 from machine import Pin, SPI
 import time
-import framebuf
 import network
 import urequests
 import ujson
@@ -22,21 +21,14 @@ PIN_ENC_SW  = 1
 ENCODER_THRESHOLD = 2
 LONG_PRESS_MS     = 900
 
-# ─── YOUTUBE API ─────────────────────────────────────────────────────────────
-# RECOMMENDED: Use the Railway backend so the API key never lives on the device.
-# Set BACKEND_SUBSCRIBERS_URL to your Railway app URL and leave YOUTUBE_API_KEY
-# as the placeholder below.
-# See docs/en/backend.md for the full Railway deployment guide.
-#
-# If you prefer to call YouTube directly from the ESP32 (less secure),
-# paste your API key into YOUTUBE_API_KEY and leave BACKEND_SUBSCRIBERS_URL empty.
+# ─── RAILWAY BACKEND ─────────────────────────────────────────────────────────
+# Set these to your Railway app URLs.
+# Leave empty to disable (status will show "НЕМА API").
 BACKEND_SUBSCRIBERS_URL = ""   # e.g. "https://your-app.up.railway.app/api/subscribers"
 BACKEND_AVATAR_URL      = ""   # e.g. "https://your-app.up.railway.app/api/avatar-rgb565"
 DEVICE_API_TOKEN        = ""   # Optional: set if you enabled token auth on the backend
 
-YOUTUBE_API_KEY    = "PASTE_YOUR_API_KEY_HERE"
-YOUTUBE_CHANNEL_ID = "UC---ig4FdhPV3bSgE9KPJhg"
-YOUTUBE_UPDATE_MS  = 60000  # Refresh interval in milliseconds (60 seconds)
+YOUTUBE_UPDATE_MS = 60000  # Refresh interval in milliseconds (60 seconds)
 
 # ─── WI-FI SETUP PORTAL ──────────────────────────────────────────────────────
 AP_SSID     = "BFU-SETUP"
@@ -56,13 +48,11 @@ DARK   = 0x0841
 GREY   = 0x7BEF
 
 # ─── MENU LAYOUT CONSTANTS ───────────────────────────────────────────────────
-MENU_X      = 25
-MENU_W      = 190
-MENU_H      = 25
+MENU_X       = 25
+MENU_W       = 190
+MENU_H       = 25
 MENU_Y_START = 82
 MENU_Y_STEP  = 34
-
-WIFI_VISIBLE_ITEMS = 3
 
 
 def color_bytes(color, count):
@@ -71,10 +61,6 @@ def color_bytes(color, count):
 
 # ─── CUSTOM BITMAP FONT (Ukrainian uppercase + required Latin uppercase + digits + symbols) ──
 # Trimmed to only characters used in the UI to save RAM on ESP32-C3.
-# Ukrainian uppercase: all letters used in menu/status/header strings.
-# Latin uppercase: B F U E L C T R O N I S W Y A P K (BFU ELECTRONICS, WI-FI, YOUTUBE, API, etc.)
-# Lowercase Latin: removed entirely — not used in any UI string.
-# Symbols: - _ . / : ! ? (space)
 FONT_UA = {
     # ── Ukrainian uppercase ───────────────────────────────────────────────────
     "А": ["01110","10001","10001","11111","10001","10001","10001"],
@@ -257,22 +243,6 @@ class GC9A01:
     def fill(self, color):
         self.fill_rect(0, 0, 240, 240, color)
 
-    def text(self, txt, x, y, color=WHITE, bg=BLACK):
-        """Render ASCII text using MicroPython built-in 8×8 font."""
-        w = len(txt) * 8
-        h = 8
-        buf = bytearray(w * h * 2)
-        fb = framebuf.FrameBuffer(buf, w, h, framebuf.RGB565)
-        fb.fill(bg)
-        fb.text(txt, 0, 0, color)
-        for i in range(0, len(buf), 2):
-            buf[i], buf[i + 1] = buf[i + 1], buf[i]
-        self.window(x, y, x + w - 1, y + h - 1)
-        self.cs.value(0)
-        self.dc.value(1)
-        self.spi.write(buf)
-        self.cs.value(1)
-
     def ua_text(self, txt, x, y, color=WHITE, bg=BLACK, scale=1):
         """Render text using the custom Ukrainian/Latin bitmap font with optional scaling."""
         char_w = 6 * scale
@@ -323,30 +293,22 @@ ap   = network.WLAN(network.AP_IF)
 main_menu_items     = ["ПІДПИСНИКИ", "СТАТУС", "НАЛАШТУВАННЯ"]
 settings_menu_items = ["WI-FI", "НАЗАД"]
 
-current_menu    = "MAIN"
-selected        = 0
-inside_page     = False
-last_clk        = enc_clk.value()
-last_sw         = enc_sw.value()
-encoder_step    = 0
-button_down     = False
+current_menu     = "MAIN"
+selected         = 0
+inside_page      = False
+last_clk         = enc_clk.value()
+last_sw          = enc_sw.value()
+encoder_step     = 0
+button_down      = False
 button_down_time = 0
 
 # ─── YOUTUBE STATE ───────────────────────────────────────────────────────────
-subscriber_count     = 4590
-last_youtube_update  = 0
-youtube_status_text  = "НЕ ОНОВЛЕНО"
+subscriber_count    = 0
+last_youtube_update = 0
+youtube_status_text = "НЕ ОНОВЛЕНО"
 
 # ─── WI-FI STATE ─────────────────────────────────────────────────────────────
-wifi_networks    = []
-wifi_selected    = 0
-wifi_scroll      = 0
-wifi_ssid        = ""
-wifi_password    = ""
-wifi_char_index  = 0
-wifi_status_text = "НЕ ПІДКЛЮЧЕНО"
-password_chars   = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!?"
-
+wifi_status_text    = "НЕ ПІДКЛЮЧЕНО"
 wifi_portal_running = False
 server_socket       = None
 screen_mode         = "MENU"
@@ -395,7 +357,6 @@ WIFI_CONFIG_FILE = "wifi_config.json"
 
 
 def save_wifi_config(ssid, password):
-    """Save Wi-Fi credentials to wifi_config.json on the ESP32 filesystem."""
     try:
         cfg = {"ssid": ssid, "password": password}
         with open(WIFI_CONFIG_FILE, "w") as f:
@@ -406,7 +367,6 @@ def save_wifi_config(ssid, password):
 
 
 def load_wifi_config():
-    """Load Wi-Fi credentials from wifi_config.json. Returns (ssid, password) or (None, None)."""
     try:
         with open(WIFI_CONFIG_FILE, "r") as f:
             cfg = ujson.load(f)
@@ -421,14 +381,16 @@ def load_wifi_config():
         return None, None
 
 
-def delete_wifi_config():
-    """Delete saved Wi-Fi credentials (for future 'Forget Wi-Fi' feature)."""
-    try:
-        import uos
-        uos.remove(WIFI_CONFIG_FILE)
-        print("WiFi config deleted")
-    except Exception as e:
-        print("delete_wifi_config error:", e)
+def _reset_sta():
+    """Disable AP, reset STA interface — prevents 0x0102 error."""
+    ap.active(False)
+    print("AP disabled before saved STA connect")
+    time.sleep_ms(500)
+    wlan.active(False)
+    time.sleep_ms(500)
+    wlan.active(True)
+    time.sleep_ms(500)
+    print("STA reset before saved connect")
 
 
 def connect_saved_wifi():
@@ -440,11 +402,11 @@ def connect_saved_wifi():
         print("No saved WiFi config")
         return False
     try:
-        wlan.active(True)
         if wlan.isconnected():
             wifi_status_text = "WI-FI OK"
             print("Already connected:", wlan.ifconfig()[0])
             return True
+        _reset_sta()
         print("Auto-connecting to:", ssid)
         wlan.connect(ssid, password)
         start = time.ticks_ms()
@@ -469,20 +431,10 @@ def connect_saved_wifi():
 
 # ─── UTILITY ─────────────────────────────────────────────────────────────────
 def center_x(text, scale):
-    """Return the X coordinate that horizontally centres text on the 240-px display."""
     return (240 - len(text) * 6 * scale) // 2
 
 
-def youtube_url():
-    return (
-        "https://www.googleapis.com/youtube/v3/channels"
-        "?part=statistics"
-        "&id=" + YOUTUBE_CHANNEL_ID +
-        "&key=" + YOUTUBE_API_KEY
-    )
-
-
-# ─── YOUTUBE API ─────────────────────────────────────────────────────────────
+# ─── YOUTUBE / BACKEND ───────────────────────────────────────────────────────
 def fetch_youtube_subscribers():
     global subscriber_count, youtube_status_text, last_youtube_update
 
@@ -490,53 +442,70 @@ def fetch_youtube_subscribers():
         youtube_status_text = "НЕМА WI-FI"
         return False
 
-    # ── Path A: Railway backend (recommended) ────────────────────────────────
-    if BACKEND_SUBSCRIBERS_URL:
-        try:
-            gc.collect()
-            headers = {}
-            if DEVICE_API_TOKEN:
-                headers["X-Device-Token"] = DEVICE_API_TOKEN
-            response = urequests.get(BACKEND_SUBSCRIBERS_URL, headers=headers)
-            data     = response.json()
-            response.close()
-            if data.get("ok"):
-                subscriber_count    = int(data["subscribers"])
-                last_youtube_update = time.ticks_ms()
-                if data.get("stale"):
-                    youtube_status_text = "КЕШ"
-                else:
-                    youtube_status_text = "ОНОВЛЕНО"
-                print("Backend subscribers:", subscriber_count)
-                return True
-            else:
-                youtube_status_text = "API ПОМИЛКА"
-                print("Backend error:", data.get("error", "unknown"))
-                return False
-        except Exception as e:
-            print("Backend fetch error:", e)
-            youtube_status_text = "API ПОМИЛКА"
-            return False
-
-    # ── Path B: Direct YouTube API fallback ──────────────────────────────────
-    if YOUTUBE_API_KEY == "PASTE_YOUR_API_KEY_HERE":
-        youtube_status_text = "НЕМА API KEY"
+    if not BACKEND_SUBSCRIBERS_URL:
+        youtube_status_text = "НЕМА API"
         return False
 
     try:
         gc.collect()
-        response = urequests.get(youtube_url())
+        headers = {}
+        if DEVICE_API_TOKEN:
+            headers["X-Device-Token"] = DEVICE_API_TOKEN
+        response = urequests.get(BACKEND_SUBSCRIBERS_URL, headers=headers)
         data     = response.json()
         response.close()
-        count               = data["items"][0]["statistics"]["subscriberCount"]
-        subscriber_count    = int(count)
-        youtube_status_text = "ОНОВЛЕНО"
-        last_youtube_update = time.ticks_ms()
-        print("YouTube subscribers:", subscriber_count)
+        if data.get("ok"):
+            subscriber_count    = int(data["subscribers"])
+            last_youtube_update = time.ticks_ms()
+            youtube_status_text = "КЕШ" if data.get("stale") else "ОНОВЛЕНО"
+            print("Backend subscribers:", subscriber_count)
+            return True
+        else:
+            youtube_status_text = "API ПОМИЛКА"
+            print("Backend error:", data.get("error", "unknown"))
+            return False
+    except Exception as e:
+        print("Backend fetch error:", e)
+        youtube_status_text = "API ПОМИЛКА"
+        return False
+
+
+# ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
+AVATAR_X    = 104  # centred: (240-32)//2
+AVATAR_Y    = 55
+AVATAR_SIZE = 32   # must match backend AVATAR_SIZE
+
+
+def fetch_channel_avatar():
+    """
+    Fetch 32x32 raw RGB565 binary from backend (application/octet-stream, 2048 bytes).
+    No JSON parsing — read bytes directly and write_block().
+    """
+    if not BACKEND_AVATAR_URL:
+        return False
+    if not wlan.isconnected():
+        return False
+    try:
+        gc.collect()
+        headers = {}
+        if DEVICE_API_TOKEN:
+            headers["X-Device-Token"] = DEVICE_API_TOKEN
+        response = urequests.get(BACKEND_AVATAR_URL, headers=headers)
+        buf      = response.content
+        response.close()
+        gc.collect()
+
+        if len(buf) != AVATAR_SIZE * AVATAR_SIZE * 2:
+            print("Avatar size mismatch:", len(buf))
+            return False
+
+        display.write_block(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, buf)
+        del buf
+        gc.collect()
+        print("Avatar drawn:", AVATAR_SIZE, "x", AVATAR_SIZE)
         return True
     except Exception as e:
-        print("YouTube API error:", e)
-        youtube_status_text = "API ПОМИЛКА"
+        print("Avatar fetch/draw error:", e)
         return False
 
 
@@ -552,8 +521,9 @@ def get_active_menu_items():
 def draw_header(title):
     display.fill_rect(0, 0, 240, 38, BLUE)
     bfu_text = "BFU ELECTRONICS"
-    display.text(bfu_text, (240 - len(bfu_text) * 8) // 2, 24, WHITE, BLUE)
-    if title != "":
+    # Render header text using ua_text (no framebuf needed)
+    display.ua_text(bfu_text, (240 - len(bfu_text) * 6) // 2, 24, WHITE, BLUE, 1)
+    if title:
         display.ua_text(title, center_x(title, 1), 8, CYAN, BLUE, 1)
 
 
@@ -585,14 +555,12 @@ def draw_menu_item(index):
     items = get_active_menu_items()
     item  = items[index]
     y     = get_menu_y(index)
-
     if index == selected:
         bg    = ORANGE
         color = BLACK
     else:
         bg    = DARK
         color = WHITE
-
     display.fill_rect(MENU_X, y - 5, MENU_W, MENU_H, bg)
     text_w = len(item) * 6 * 2
     text_x = MENU_X + (MENU_W - text_w) // 2
@@ -603,18 +571,10 @@ def draw_menu():
     global screen_mode
     screen_mode = "MENU"
     display.fill(BLACK)
-
-    if current_menu == "MAIN":
-        draw_header("")
-    elif current_menu == "SETTINGS":
-        draw_header("")
-    else:
-        draw_header("")
-
+    draw_header("")
     if current_menu == "SETTINGS":
         t = "НАЛАШТУВАННЯ"
         display.ua_text(t, center_x(t, 2), 44, CYAN, BLACK, 2)
-
     items = get_active_menu_items()
     for i in range(len(items)):
         draw_menu_item(i)
@@ -624,48 +584,6 @@ def draw_menu():
 def update_menu_selection(old_index, new_index):
     draw_menu_item(old_index)
     draw_menu_item(new_index)
-
-
-# ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
-AVATAR_X    = 104  # top-left x of 32x32 avatar on display (centred: (240-32)//2)
-AVATAR_Y    = 55   # top-left y of 32x32 avatar on display
-AVATAR_SIZE = 32   # must match backend AVATAR_SIZE
-
-
-def fetch_channel_avatar():
-    """
-    Fetch 32x32 raw RGB565 binary from backend and draw it on the display.
-    Backend returns application/octet-stream: 32*32*2 = 2048 bytes.
-    No JSON parsing, no pixel list — just read bytes and write_block().
-    Returns True on success, False on failure (page still shows subscriber count).
-    """
-    if not BACKEND_AVATAR_URL:
-        return False
-    if not wlan.isconnected():
-        return False
-    try:
-        gc.collect()
-        headers = {}
-        if DEVICE_API_TOKEN:
-            headers["X-Device-Token"] = DEVICE_API_TOKEN
-        response = urequests.get(BACKEND_AVATAR_URL, headers=headers)
-        buf      = response.content   # bytearray of raw RGB565 bytes
-        response.close()
-        gc.collect()
-
-        if len(buf) != AVATAR_SIZE * AVATAR_SIZE * 2:
-            print("Avatar size mismatch:", len(buf))
-            return False
-
-        display.write_block(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, buf)
-        del buf
-        gc.collect()
-        print("Avatar drawn:", AVATAR_SIZE, "x", AVATAR_SIZE)
-        return True
-
-    except Exception as e:
-        print("Avatar fetch/draw error:", e)
-        return False
 
 
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
@@ -687,23 +605,14 @@ def draw_subscribers_page():
     screen_mode = "SUBSCRIBERS"
     display.fill(BLACK)
     draw_header("")
-
-    # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
     display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
-
-    # Labels
     display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 160, YELLOW, BLACK, 1)
-
     draw_subscriber_number()
     draw_subscriber_status()
     draw_back_footer()
-
-    # Fetch subscriber count first (fast)
     fetch_youtube_subscribers()
     draw_subscriber_number()
     draw_subscriber_status()
-
-    # Then fetch and draw avatar (may take a moment)
     fetch_channel_avatar()
 
 
@@ -715,17 +624,74 @@ def draw_status_page():
     draw_header("СТАТУС")
     display.fill_rect(25, 58, 190, 120, DARK)
     display.fill_rect(35, 68, 170, 100, BLACK)
-    display.ua_text("ESP32-C3",      74, 78,  CYAN,   BLACK, 1)
-    display.ua_text("ДИСПЛЕЙ OK",    60, 100, GREEN,  BLACK, 1)
-    display.ua_text("ЕНКОДЕР OK",    60, 120, GREEN,  BLACK, 1)
+    display.ua_text("ESP32-C3",       74, 78,  CYAN,   BLACK, 1)
+    display.ua_text("ДИСПЛЕЙ OK",     60, 100, GREEN,  BLACK, 1)
+    display.ua_text("ЕНКОДЕР OK",     60, 120, GREEN,  BLACK, 1)
     display.ua_text(wifi_status_text, 48, 140, YELLOW, BLACK, 1)
     draw_back_footer()
 
 
-# ─── WI-FI LIST / PASSWORD SCREENS (legacy manual entry, kept intact) ────────
-def wifi_scan_networks():
-    global wifi_networks, wifi_selected, wifi_scroll
-    draw_wifi_scanning_page()
+# ─── WI-FI SETUP PORTAL (SoftAP + web form) ──────────────────────────────────
+def draw_qr(matrix, x, y, scale):
+    size = len(matrix)
+    display.fill_rect(x - 4, y - 4, size * scale + 8, size * scale + 8, WHITE)
+    for row in range(size):
+        for col in range(size):
+            if matrix[row][col] == "1":
+                display.fill_rect(x + col * scale, y + row * scale, scale, scale, BLACK)
+
+
+def draw_wifi_portal_qr_page():
+    global screen_mode
+    screen_mode = "WIFI_PORTAL"
+    display.fill(BLACK)
+    draw_header("WI-FI SETUP")
+    display.ua_text("СКАНУЙ QR", 72, 45, CYAN, BLACK, 1)
+    draw_qr(QR_WIFI_SETUP, 54, 62, 4)
+    display.ua_text("BFU-SETUP", 72, 198, YELLOW, BLACK, 1)
+    draw_wifi_footer("PASS: 12345678", "IP: 192.168.4.1")
+
+
+def draw_wifi_portal_ip_page():
+    global screen_mode
+    screen_mode = "WIFI_PORTAL"
+    display.fill(BLACK)
+    draw_header("WI-FI SETUP")
+    display.fill_rect(20, 58, 200, 130, DARK)
+    display.fill_rect(30, 68, 180, 110, BLACK)
+    display.ua_text("ПІДКЛЮЧИСЬ",  60, 78,  CYAN,   BLACK, 1)
+    display.ua_text("BFU-SETUP",   72, 100, YELLOW, BLACK, 1)
+    display.ua_text("PASS:",       54, 122, WHITE,  BLACK, 1)
+    display.ua_text("12345678",    90, 122, GREEN,  BLACK, 1)
+    display.ua_text("ВІДКРИЙ:",    72, 146, WHITE,  BLACK, 1)
+    display.ua_text("192.168.4.1", 60, 164, GREEN,  BLACK, 1)
+    draw_wifi_footer("QR АБО РУЧНО", "КЛІК = НАЗАД")
+
+
+def url_decode(text):
+    text   = text.replace("+", " ")
+    parts  = text.split("%")
+    result = parts[0]
+    for item in parts[1:]:
+        if len(item) >= 2:
+            try:
+                result += chr(int(item[:2], 16)) + item[2:]
+            except:
+                result += "%" + item
+        else:
+            result += "%" + item
+    return result
+
+
+def html_escape(text):
+    text = text.replace("&", "&amp;")
+    text = text.replace("<", "&lt;")
+    text = text.replace(">", "&gt;")
+    text = text.replace('"', "&quot;")
+    return text
+
+
+def get_wifi_scan_options():
     try:
         wlan.active(True)
         raw   = wlan.scan()
@@ -734,126 +700,152 @@ def wifi_scan_networks():
             ssid = net[0].decode("utf-8", "ignore")
             if ssid and ssid not in found:
                 found.append(ssid)
-        wifi_networks = found
+        html = ""
+        for ssid in found:
+            safe  = html_escape(ssid)
+            html += '<option value="' + safe + '">' + safe + '</option>'
+        if not html:
+            html = '<option value="">No networks found</option>'
+        return html
     except Exception as e:
-        print("WiFi scan error:", e)
-        wifi_networks = []
-    wifi_selected = 0
-    wifi_scroll   = 0
-    draw_wifi_list_page()
+        print("WiFi scan web error:", e)
+        return '<option value="">Scan error</option>'
 
 
-def draw_wifi_scanning_page():
-    global screen_mode
-    screen_mode = "WIFI_SCAN"
-    display.fill(BLACK)
-    draw_header("WI-FI")
-    display.fill_rect(25, 70, 190, 90, DARK)
-    display.fill_rect(35, 80, 170, 70, BLACK)
-    display.ua_text("СКАНУВАННЯ", 60, 95,  YELLOW, BLACK, 1)
-    display.ua_text("МЕРЕЖ",      84, 120, CYAN,   BLACK, 1)
-    draw_wifi_footer("ЗАЧЕКАЙ", "ПОШУК WI-FI")
+def web_page():
+    options = get_wifi_scan_options()
+    return (
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n"
+        "<!DOCTYPE html><html><head>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>BFU Wi-Fi Setup</title>"
+        "<style>body{font-family:Arial;background:#111;color:white;padding:20px;}"
+        ".card{max-width:420px;margin:auto;background:#1e1e1e;padding:20px;border-radius:16px;}"
+        "h1{color:#00e5ff;text-align:center;margin-top:0;}"
+        "label{display:block;margin-top:16px;font-weight:bold;}"
+        "select,input,button{width:100%;box-sizing:border-box;padding:14px;margin-top:8px;"
+        "border-radius:10px;border:none;font-size:16px;}"
+        "button{background:orange;color:black;font-weight:bold;margin-top:22px;}"
+        ".small{color:#aaa;text-align:center;font-size:13px;}</style></head><body>"
+        "<div class='card'><h1>BFU Wi-Fi Setup</h1>"
+        "<p class='small'>Select your Wi-Fi network, enter password, then press Connect.</p>"
+        "<form action='/connect' method='GET'>"
+        "<label>Wi-Fi Network</label><select name='ssid'>" + options + "</select>"
+        "<label>Password</label>"
+        "<input name='password' type='password' placeholder='Wi-Fi password'>"
+        "<button type='submit'>Connect</button></form>"
+        "<p class='small'>Device AP: BFU-SETUP / 12345678</p>"
+        "</div></body></html>"
+    )
 
 
-def draw_wifi_list_page():
-    global screen_mode
-    screen_mode = "WIFI_LIST"
-    display.fill(BLACK)
-    draw_header("WI-FI")
-    if len(wifi_networks) == 0:
-        display.fill_rect(25, 70, 190, 90, DARK)
-        display.fill_rect(35, 80, 170, 70, BLACK)
-        display.ua_text("МЕРЕЖ НЕМА",    60, 95,  RED,   BLACK, 1)
-        display.ua_text("НАТИСНИ НАЗАД", 42, 120, WHITE, BLACK, 1)
-        draw_wifi_footer("КЛІК = НАЗАД", "ДОВГИЙ = НАЗАД")
-        return
-    display.ua_text("ВИБЕРИ МЕРЕЖУ", 42, 50, CYAN, BLACK, 1)
-    draw_wifi_visible_items()
-    draw_wifi_footer("ОБЕРТАЙ = СПИСОК", "КЛІК = ВИБІР")
+def web_result_page(text):
+    return (
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\n\r\n"
+        "<!DOCTYPE html><html><head>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>BFU Wi-Fi Setup</title>"
+        "<style>body{font-family:Arial;background:#111;color:white;padding:20px;text-align:center;}"
+        ".card{max-width:420px;margin:auto;background:#1e1e1e;padding:20px;border-radius:16px;}"
+        "h1{color:#00e5ff;}</style></head><body>"
+        "<div class='card'><h1>BFU Wi-Fi Setup</h1><p>" + text + "</p></div></body></html>"
+    )
 
 
-def draw_wifi_visible_items():
-    display.fill_rect(15, 68, 210, 110, BLACK)
-    for row in range(WIFI_VISIBLE_ITEMS):
-        index = wifi_scroll + row
-        if index >= len(wifi_networks):
-            continue
-        ssid = wifi_networks[index]
-        if len(ssid) > 14:
-            ssid = ssid[:14]
-        y = 78 + row * 34
-        if index == wifi_selected:
-            bg    = ORANGE
-            color = BLACK
+def start_wifi_setup_portal():
+    global wifi_portal_running, server_socket
+    draw_wifi_portal_qr_page()
+    try:
+        ap.active(True)
+        try:
+            ap.config(essid=AP_SSID, password=AP_PASSWORD, authmode=network.AUTH_WPA_WPA2_PSK)
+        except:
+            ap.config(essid=AP_SSID, password=AP_PASSWORD)
+        time.sleep_ms(700)
+
+        if server_socket:
+            try:
+                server_socket.close()
+            except:
+                pass
+
+        addr          = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
+        server_socket = socket.socket()
+        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_socket.bind(addr)
+        server_socket.listen(1)
+        server_socket.settimeout(0.05)
+
+        wifi_portal_running = True
+        print("WiFi setup portal started — AP:", AP_SSID, "/ http://" + AP_IP)
+    except Exception as e:
+        print("Portal start error:", e)
+
+
+def stop_wifi_setup_portal():
+    global wifi_portal_running, server_socket
+    wifi_portal_running = False
+    try:
+        if server_socket:
+            server_socket.close()
+    except:
+        pass
+    server_socket = None
+    try:
+        ap.active(False)
+    except:
+        pass
+
+
+def parse_connect_request(request):
+    try:
+        first_line = request.split("\r\n")[0]
+        if "GET /connect?" not in first_line:
+            return None, None
+        query    = first_line.split("GET /connect?")[1].split(" ")[0]
+        ssid     = ""
+        password = ""
+        for p in query.split("&"):
+            if p.startswith("ssid="):
+                ssid = url_decode(p[5:])
+            elif p.startswith("password="):
+                password = url_decode(p[9:])
+        return ssid, password
+    except Exception as e:
+        print("Parse request error:", e)
+        return None, None
+
+
+def connect_to_selected_wifi(ssid, password):
+    global wifi_status_text
+    draw_wifi_connecting_page()
+    try:
+        _reset_sta()
+        print("Connecting to:", ssid)
+        wlan.connect(ssid, password)
+        start = time.ticks_ms()
+        while not wlan.isconnected():
+            if time.ticks_diff(time.ticks_ms(), start) > 20000:
+                break
+            time.sleep_ms(300)
+        if wlan.isconnected():
+            ip = wlan.ifconfig()[0]
+            wifi_status_text = "WI-FI OK"
+            print("WiFi connected:", ip)
+            save_wifi_config(ssid, password)
+            stop_wifi_setup_portal()
+            draw_wifi_result_page(True, ip)
+            return True
         else:
-            bg    = DARK
-            color = WHITE
-        display.fill_rect(20, y - 5, 200, 25, bg)
-        display.ua_text(ssid, 30, y + 2, color, bg, 1)
-    info = str(wifi_selected + 1) + "/" + str(len(wifi_networks))
-    display.fill_rect(90, 178, 70, 14, BLACK)
-    display.ua_text(info, center_x(info, 1), 180, YELLOW, BLACK, 1)
-
-
-def update_wifi_selection(old_index, new_index):
-    global wifi_scroll
-    if new_index < wifi_scroll:
-        wifi_scroll = new_index
-        draw_wifi_list_page()
-        return
-    if new_index >= wifi_scroll + WIFI_VISIBLE_ITEMS:
-        wifi_scroll = new_index - WIFI_VISIBLE_ITEMS + 1
-        draw_wifi_list_page()
-        return
-    draw_wifi_visible_items()
-
-
-def draw_wifi_password_page():
-    global screen_mode
-    screen_mode = "WIFI_PASSWORD"
-    display.fill(BLACK)
-    draw_header("ПАРОЛЬ")
-    ssid_show = wifi_ssid
-    if len(ssid_show) > 16:
-        ssid_show = ssid_show[:16]
-    display.ua_text("МЕРЕЖА:", 30, 50, CYAN,  BLACK, 1)
-    display.ua_text(ssid_show, 30, 65, WHITE, BLACK, 1)
-    draw_password_field()
-    draw_char_picker()
-    draw_wifi_footer("КЛІК = ДОДАТИ", "ДОВГИЙ = ГОТОВО")
-
-
-def draw_password_field():
-    display.fill_rect(20, 92, 200, 30, DARK)
-    display.fill_rect(25, 97, 190, 20, BLACK)
-    shown = wifi_password
-    if len(shown) > 20:
-        shown = shown[-20:]
-    display.ua_text(shown, 30, 103, GREEN, BLACK, 1)
-
-
-def draw_char_picker():
-    char = password_chars[wifi_char_index]
-    display.fill_rect(72, 135, 96, 52, DARK)
-    display.fill_rect(82, 145, 76, 32, BLACK)
-    display.ua_text(char, 111, 150, ORANGE, BLACK, 3)
-    index_text = str(wifi_char_index + 1) + "/" + str(len(password_chars))
-    display.fill_rect(80, 190, 90, 14, BLACK)
-    display.ua_text(index_text, center_x(index_text, 1), 192, CYAN, BLACK, 1)
-
-
-def draw_wifi_confirm_page():
-    global screen_mode
-    screen_mode = "WIFI_CONFIRM"
-    display.fill(BLACK)
-    draw_header("WI-FI")
-    display.fill_rect(25, 58, 190, 120, DARK)
-    display.fill_rect(35, 68, 170, 100, BLACK)
-    display.ua_text("ПАРОЛЬ ГОТОВО",  48, 82,  GREEN,  BLACK, 1)
-    display.ua_text("ПІДКЛЮЧИТИСЯ",   42, 110, YELLOW, BLACK, 1)
-    pass_len = "СИМВОЛІВ: " + str(len(wifi_password))
-    display.ua_text(pass_len, 54, 140, CYAN, BLACK, 1)
-    draw_wifi_footer("КЛІК = СТАРТ", "ДОВГИЙ = НАЗАД")
+            wifi_status_text = "WI-FI ПОМИЛКА"
+            print("WiFi connection failed")
+            draw_wifi_result_page(False)
+            return False
+    except Exception as e:
+        print("Connect selected WiFi error:", e)
+        wifi_status_text = "WI-FI ПОМИЛКА"
+        draw_wifi_result_page(False)
+        return False
 
 
 def draw_wifi_connecting_page():
@@ -890,300 +882,7 @@ def draw_wifi_result_page(ok, ip_text=""):
     draw_wifi_footer("КЛІК = НАЗАД", "ДО МЕНЮ")
 
 
-def connect_to_wifi():
-    draw_wifi_connecting_page()
-    try:
-        wlan.active(True)
-        wlan.connect(wifi_ssid, wifi_password)
-        start = time.ticks_ms()
-        while not wlan.isconnected():
-            if time.ticks_diff(time.ticks_ms(), start) > 15000:
-                break
-            time.sleep_ms(300)
-        if wlan.isconnected():
-            ip = wlan.ifconfig()[0]
-            print("WiFi connected:", ip)
-            draw_wifi_result_page(True, ip)
-        else:
-            print("WiFi connection failed")
-            draw_wifi_result_page(False)
-    except Exception as e:
-        print("WiFi connect error:", e)
-        draw_wifi_result_page(False)
-
-
-# ─── WI-FI SETUP PORTAL (SoftAP + web form) ──────────────────────────────────
-def draw_qr(matrix, x, y, scale):
-    """Render a QR code matrix on the display."""
-    size = len(matrix)
-    display.fill_rect(x - 4, y - 4, size * scale + 8, size * scale + 8, WHITE)
-    for row in range(size):
-        for col in range(size):
-            if matrix[row][col] == "1":
-                display.fill_rect(x + col * scale, y + row * scale, scale, scale, BLACK)
-
-
-def draw_wifi_portal_qr_page():
-    global screen_mode
-    screen_mode = "WIFI_PORTAL"
-    display.fill(BLACK)
-    draw_header("WI-FI SETUP")
-    display.ua_text("СКАНУЙ QR", 72, 45, CYAN, BLACK, 1)
-    draw_qr(QR_WIFI_SETUP, 54, 62, 4)
-    display.ua_text("BFU-SETUP", 72, 198, YELLOW, BLACK, 1)
-    draw_wifi_footer("PASS: 12345678", "IP: 192.168.4.1")
-
-
-def draw_wifi_portal_ip_page():
-    global screen_mode
-    screen_mode = "WIFI_PORTAL"
-    display.fill(BLACK)
-    draw_header("WI-FI SETUP")
-    display.fill_rect(20, 58, 200, 130, DARK)
-    display.fill_rect(30, 68, 180, 110, BLACK)
-    display.ua_text("ПІДКЛЮЧИСЬ",  60, 78,  CYAN,  BLACK, 1)
-    display.ua_text("BFU-SETUP",   72, 100, YELLOW, BLACK, 1)
-    display.ua_text("PASS:",       54, 122, WHITE,  BLACK, 1)
-    display.ua_text("12345678",    90, 122, GREEN,  BLACK, 1)
-    display.ua_text("ВІДКРИЙ:",    72, 146, WHITE,  BLACK, 1)
-    display.text("192.168.4.1",    70, 164, GREEN,  BLACK)
-    draw_wifi_footer("QR АБО РУЧНО", "КЛІК = НАЗАД")
-
-
-def url_decode(text):
-    text  = text.replace("+", " ")
-    parts = text.split("%")
-    result = parts[0]
-    for item in parts[1:]:
-        if len(item) >= 2:
-            try:
-                result += chr(int(item[:2], 16)) + item[2:]
-            except:
-                result += "%" + item
-        else:
-            result += "%" + item
-    return result
-
-
-def html_escape(text):
-    text = text.replace("&", "&amp;")
-    text = text.replace("<", "&lt;")
-    text = text.replace(">", "&gt;")
-    text = text.replace('"', "&quot;")
-    return text
-
-
-def get_wifi_scan_options():
-    """Scan for nearby Wi-Fi networks and return HTML <option> elements."""
-    try:
-        wlan.active(True)
-        raw   = wlan.scan()
-        found = []
-        for net in raw:
-            ssid = net[0].decode("utf-8", "ignore")
-            if ssid and ssid not in found:
-                found.append(ssid)
-        html = ""
-        for ssid in found:
-            safe  = html_escape(ssid)
-            html += '<option value="' + safe + '">' + safe + '</option>'
-        if html == "":
-            html = '<option value="">No networks found</option>'
-        return html
-    except Exception as e:
-        print("WiFi scan web error:", e)
-        return '<option value="">Scan error</option>'
-
-
-def web_page():
-    """Return the full HTTP response for the Wi-Fi setup portal page."""
-    options = get_wifi_scan_options()
-    page = """HTTP/1.1 200 OK\r
-Content-Type: text/html\r
-Connection: close\r
-\r
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BFU Wi-Fi Setup</title>
-<style>
-body{font-family:Arial;background:#111;color:white;padding:20px;}
-.card{max-width:420px;margin:auto;background:#1e1e1e;padding:20px;border-radius:16px;box-shadow:0 0 20px rgba(0,0,0,.4);}
-h1{color:#00e5ff;text-align:center;margin-top:0;}
-label{display:block;margin-top:16px;font-weight:bold;}
-select,input,button{width:100%;box-sizing:border-box;padding:14px;margin-top:8px;border-radius:10px;border:none;font-size:16px;}
-button{background:orange;color:black;font-weight:bold;margin-top:22px;}
-.small{color:#aaa;text-align:center;font-size:13px;line-height:1.4;}
-</style>
-</head>
-<body>
-<div class="card">
-<h1>BFU Wi-Fi Setup</h1>
-<p class="small">Select your Wi-Fi network, enter password, then press Connect.</p>
-<form action="/connect" method="GET">
-<label>Wi-Fi Network</label>
-<select name="ssid">
-""" + options + """
-</select>
-<label>Password</label>
-<input name="password" type="password" placeholder="Wi-Fi password">
-<button type="submit">Connect</button>
-</form>
-<p class="small">Device AP: BFU-SETUP / 12345678</p>
-</div>
-</body>
-</html>
-"""
-    return page
-
-
-def web_result_page(text):
-    """Return the HTTP response for the portal result/confirmation page."""
-    page = """HTTP/1.1 200 OK\r
-Content-Type: text/html\r
-Connection: close\r
-\r
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>BFU Wi-Fi Setup</title>
-<style>
-body{font-family:Arial;background:#111;color:white;padding:20px;text-align:center;}
-.card{max-width:420px;margin:auto;background:#1e1e1e;padding:20px;border-radius:16px;}
-h1{color:#00e5ff;}
-</style>
-</head>
-<body>
-<div class="card">
-<h1>BFU Wi-Fi Setup</h1>
-<p>""" + text + """</p>
-</div>
-</body>
-</html>
-"""
-    return page
-
-
-def start_wifi_setup_portal():
-    """Start the SoftAP and non-blocking HTTP server for Wi-Fi configuration."""
-    global wifi_portal_running, server_socket
-    draw_wifi_portal_qr_page()
-    try:
-        wlan.active(True)
-        ap.active(True)
-
-        try:
-            ap.config(essid=AP_SSID, password=AP_PASSWORD, authmode=network.AUTH_WPA_WPA2_PSK)
-        except:
-            ap.config(essid=AP_SSID, password=AP_PASSWORD)
-
-        time.sleep_ms(700)
-
-        if server_socket:
-            try:
-                server_socket.close()
-            except:
-                pass
-
-        addr          = socket.getaddrinfo("0.0.0.0", 80)[0][-1]
-        server_socket = socket.socket()
-        server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server_socket.bind(addr)
-        server_socket.listen(1)
-        server_socket.settimeout(0.05)  # Non-blocking: returns immediately if no client
-
-        wifi_portal_running = True
-        print("WiFi setup portal started")
-        print("AP SSID:", AP_SSID)
-        print("AP PASS:", AP_PASSWORD)
-        print("Open: http://" + AP_IP)
-
-    except Exception as e:
-        print("Portal start error:", e)
-        draw_wifi_result_page(False)
-
-
-def stop_wifi_setup_portal():
-    """Stop the SoftAP and close the HTTP server socket."""
-    global wifi_portal_running, server_socket
-    wifi_portal_running = False
-    try:
-        if server_socket:
-            server_socket.close()
-    except:
-        pass
-    server_socket = None
-    try:
-        ap.active(False)
-    except:
-        pass
-
-
-def parse_connect_request(request):
-    """Extract SSID and password from a GET /connect?ssid=...&password=... request."""
-    try:
-        first_line = request.split("\r\n")[0]
-        if "GET /connect?" not in first_line:
-            return None, None
-        query    = first_line.split("GET /connect?")[1].split(" ")[0]
-        ssid     = ""
-        password = ""
-        params   = query.split("&")
-        for p in params:
-            if p.startswith("ssid="):
-                ssid = url_decode(p[5:])
-            elif p.startswith("password="):
-                password = url_decode(p[9:])
-        return ssid, password
-    except Exception as e:
-        print("Parse request error:", e)
-        return None, None
-
-
-def connect_to_selected_wifi(ssid, password):
-    """Connect to the Wi-Fi network chosen via the web portal."""
-    global wifi_status_text
-    draw_wifi_connecting_page()
-    try:
-        wlan.active(True)
-        if wlan.isconnected():
-            wlan.disconnect()
-            time.sleep_ms(500)
-
-        print("Connecting to:", ssid)
-        wlan.connect(ssid, password)
-
-        start = time.ticks_ms()
-        while not wlan.isconnected():
-            if time.ticks_diff(time.ticks_ms(), start) > 20000:
-                break
-            time.sleep_ms(300)
-
-        if wlan.isconnected():
-            ip = wlan.ifconfig()[0]
-            wifi_status_text = "WI-FI OK"
-            print("WiFi connected:", ip)
-            save_wifi_config(ssid, password)
-            stop_wifi_setup_portal()
-            draw_wifi_result_page(True, ip)
-            return True
-        else:
-            wifi_status_text = "WI-FI ПОМИЛКА"
-            print("WiFi connection failed")
-            draw_wifi_result_page(False)
-            return False
-
-    except Exception as e:
-        print("Connect selected WiFi error:", e)
-        wifi_status_text = "WI-FI ПОМИЛКА"
-        draw_wifi_result_page(False)
-        return False
-
-
 def handle_wifi_portal():
-    """Non-blocking portal handler — called every main-loop iteration."""
     global server_socket
     if not wifi_portal_running or server_socket is None:
         return
@@ -1223,7 +922,7 @@ def handle_wifi_portal():
 
 # ─── NAVIGATION ──────────────────────────────────────────────────────────────
 def open_selected_item():
-    global current_menu, selected, inside_page, wifi_ssid, wifi_password, wifi_char_index
+    global current_menu, selected, inside_page
     items        = get_active_menu_items()
     current_item = items[selected]
 
@@ -1259,7 +958,7 @@ def go_back():
         draw_menu()
         return
 
-    if screen_mode in ("WIFI_LIST", "WIFI_PASSWORD", "WIFI_CONFIRM", "WIFI_RESULT", "WIFI_PORTAL", "WIFI_CONNECTING"):
+    if screen_mode in ("WIFI_RESULT", "WIFI_PORTAL", "WIFI_CONNECTING"):
         stop_wifi_setup_portal()
         inside_page = False
         screen_mode = "MENU"
@@ -1274,78 +973,40 @@ def go_back():
 
 
 def rotate_right():
-    global selected, wifi_selected, wifi_char_index
-    if screen_mode == "MENU":
-        if not inside_page:
-            old_selected = selected
-            items        = get_active_menu_items()
-            selected     = (selected + 1) % len(items)
-            update_menu_selection(old_selected, selected)
-            print("Selected:", items[selected])
-    elif screen_mode == "WIFI_LIST":
-        if len(wifi_networks) > 0:
-            old          = wifi_selected
-            wifi_selected = (wifi_selected + 1) % len(wifi_networks)
-            update_wifi_selection(old, wifi_selected)
-    elif screen_mode == "WIFI_PASSWORD":
-        wifi_char_index = (wifi_char_index + 1) % len(password_chars)
-        draw_char_picker()
+    global selected
+    if screen_mode == "MENU" and not inside_page:
+        old_selected = selected
+        items        = get_active_menu_items()
+        selected     = (selected + 1) % len(items)
+        update_menu_selection(old_selected, selected)
+        print("Selected:", items[selected])
 
 
 def rotate_left():
-    global selected, wifi_selected, wifi_char_index
-    if screen_mode == "MENU":
-        if not inside_page:
-            old_selected = selected
-            items        = get_active_menu_items()
-            selected     = (selected - 1) % len(items)
-            update_menu_selection(old_selected, selected)
-            print("Selected:", items[selected])
-    elif screen_mode == "WIFI_LIST":
-        if len(wifi_networks) > 0:
-            old          = wifi_selected
-            wifi_selected = (wifi_selected - 1) % len(wifi_networks)
-            update_wifi_selection(old, wifi_selected)
-    elif screen_mode == "WIFI_PASSWORD":
-        wifi_char_index = (wifi_char_index - 1) % len(password_chars)
-        draw_char_picker()
+    global selected
+    if screen_mode == "MENU" and not inside_page:
+        old_selected = selected
+        items        = get_active_menu_items()
+        selected     = (selected - 1) % len(items)
+        update_menu_selection(old_selected, selected)
+        print("Selected:", items[selected])
 
 
 def handle_short_click():
-    global wifi_ssid, wifi_password, wifi_char_index, inside_page
-
+    global inside_page
     if screen_mode == "MENU":
         open_selected_item()
     elif screen_mode in ("SUBSCRIBERS", "STATUS"):
         go_back()
     elif screen_mode == "WIFI_PORTAL":
         go_back()
-    elif screen_mode == "WIFI_LIST":
-        if len(wifi_networks) == 0:
-            go_back()
-            return
-        wifi_ssid       = wifi_networks[wifi_selected]
-        wifi_password   = ""
-        wifi_char_index = 0
-        print("Selected WiFi:", wifi_ssid)
-        draw_wifi_password_page()
-    elif screen_mode == "WIFI_PASSWORD":
-        if len(wifi_password) < 32:
-            wifi_password += password_chars[wifi_char_index]
-            draw_password_field()
-    elif screen_mode == "WIFI_CONFIRM":
-        connect_to_wifi()
     elif screen_mode == "WIFI_RESULT":
         inside_page = False
         draw_menu()
 
 
 def handle_long_click():
-    if screen_mode == "WIFI_PASSWORD":
-        draw_wifi_confirm_page()
-    elif screen_mode == "WIFI_CONFIRM":
-        draw_wifi_password_page()
-    elif screen_mode in ("WIFI_LIST", "WIFI_RESULT", "WIFI_PORTAL"):
+    if screen_mode in ("WIFI_RESULT", "WIFI_PORTAL", "WIFI_CONNECTING"):
         go_back()
     elif screen_mode in ("SUBSCRIBERS", "STATUS"):
         go_back()
@@ -1356,25 +1017,17 @@ connect_saved_wifi()
 draw_menu()
 
 print("=================================")
-print("BFU YOUTUBE COUNTER MENU STARTED")
-print("WI-FI SETUP PORTAL ENABLED")
+print("BFU YOUTUBE COUNTER STARTED")
 print("AP SSID =", AP_SSID)
-print("AP PASS =", AP_PASSWORD)
 print("WEB SETUP = http://" + AP_IP)
-print("YOUTUBE LIVE SUBSCRIBERS ENABLED")
-print("SHORT CLICK = SELECT / BACK")
-print("LONG CLICK = BACK")
 print("ENCODER THRESHOLD =", ENCODER_THRESHOLD)
 print("=================================")
 
 # ─── MAIN LOOP ───────────────────────────────────────────────────────────────
 while True:
-    # Handle incoming web portal requests (non-blocking)
     handle_wifi_portal()
 
-    # Read rotary encoder
     clk_now = enc_clk.value()
-
     if clk_now != last_clk:
         if enc_dt.value() != clk_now:
             encoder_step += 1
@@ -1390,16 +1043,13 @@ while True:
 
         last_clk = clk_now
 
-    # Periodic YouTube subscriber refresh
     if screen_mode == "SUBSCRIBERS":
         if time.ticks_diff(time.ticks_ms(), last_youtube_update) > YOUTUBE_UPDATE_MS:
             if fetch_youtube_subscribers():
                 draw_subscriber_number()
                 draw_subscriber_status()
 
-    # Read encoder button
     sw_now = enc_sw.value()
-
     if last_sw == 1 and sw_now == 0:
         button_down      = True
         button_down_time = time.ticks_ms()
@@ -1413,7 +1063,6 @@ while True:
             else:
                 print("Short click")
                 handle_short_click()
-
         button_down = False
         time.sleep_ms(120)
 
