@@ -519,6 +519,35 @@ def fetch_youtube_subscribers():
         youtube_status_text = "НЕМА WI-FI"
         return False
 
+    # ── Path A: Railway backend (recommended) ────────────────────────────────
+    if BACKEND_SUBSCRIBERS_URL:
+        try:
+            gc.collect()
+            headers = {}
+            if DEVICE_API_TOKEN:
+                headers["X-Device-Token"] = DEVICE_API_TOKEN
+            response = urequests.get(BACKEND_SUBSCRIBERS_URL, headers=headers)
+            data     = response.json()
+            response.close()
+            if data.get("ok"):
+                subscriber_count    = int(data["subscribers"])
+                last_youtube_update = time.ticks_ms()
+                if data.get("stale"):
+                    youtube_status_text = "КЕШ"
+                else:
+                    youtube_status_text = "ОНОВЛЕНО"
+                print("Backend subscribers:", subscriber_count)
+                return True
+            else:
+                youtube_status_text = "API ПОМИЛКА"
+                print("Backend error:", data.get("error", "unknown"))
+                return False
+        except Exception as e:
+            print("Backend fetch error:", e)
+            youtube_status_text = "API ПОМИЛКА"
+            return False
+
+    # ── Path B: Direct YouTube API fallback ──────────────────────────────────
     if YOUTUBE_API_KEY == "PASTE_YOUR_API_KEY_HERE":
         youtube_status_text = "НЕМА API KEY"
         return False
@@ -528,10 +557,10 @@ def fetch_youtube_subscribers():
         response = urequests.get(youtube_url())
         data     = response.json()
         response.close()
-        count            = data["items"][0]["statistics"]["subscriberCount"]
-        subscriber_count = int(count)
-        youtube_status_text  = "ОНОВЛЕНО"
-        last_youtube_update  = time.ticks_ms()
+        count               = data["items"][0]["statistics"]["subscriberCount"]
+        subscriber_count    = int(count)
+        youtube_status_text = "ОНОВЛЕНО"
+        last_youtube_update = time.ticks_ms()
         print("YouTube subscribers:", subscriber_count)
         return True
     except Exception as e:
