@@ -492,9 +492,43 @@ def fetch_youtube_subscribers():
 
 
 # ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
-AVATAR_X    = 92   # centred: (240-56)//2
-AVATAR_Y    = 42
-AVATAR_SIZE = 56   # must match backend AVATAR_SIZE
+AVATAR_X    = 88   # centred: (240-64)//2
+AVATAR_Y    = 48
+AVATAR_SIZE = 64   # must match backend AVATAR_SIZE
+
+
+def draw_circle_outline(cx, cy, r, color):
+    """Draw a 1-pixel-wide circle outline using the midpoint algorithm."""
+    x = r
+    y = 0
+    err = 0
+    while x >= y:
+        for dx, dy in ((x, y), (y, x), (-y, x), (-x, y),
+                       (-x, -y), (-y, -x), (y, -x), (x, -y)):
+            display.fill_rect(cx + dx, cy + dy, 1, 1, color)
+        y += 1
+        if err <= 0:
+            err += 2 * y + 1
+        if err > 0:
+            x -= 1
+            err -= 2 * x + 1
+
+
+def draw_avatar_frame():
+    """Draw a yellow ring around the avatar and black corners to create a circular crop effect."""
+    cx = AVATAR_X + AVATAR_SIZE // 2
+    cy = AVATAR_Y + AVATAR_SIZE // 2
+    # Black out the four square corners outside the inner circle (r=32)
+    inner_r = AVATAR_SIZE // 2  # 32
+    for dy in range(AVATAR_SIZE):
+        for dx in range(AVATAR_SIZE):
+            dist2 = (dx - inner_r) * (dx - inner_r) + (dy - inner_r) * (dy - inner_r)
+            if dist2 > inner_r * inner_r:
+                display.fill_rect(AVATAR_X + dx, AVATAR_Y + dy, 1, 1, BLACK)
+    # Yellow ring: draw concentric outlines at r=33 and r=34
+    draw_circle_outline(cx, cy, inner_r + 1, YELLOW)
+    draw_circle_outline(cx, cy, inner_r + 2, YELLOW)
+    draw_circle_outline(cx, cy, inner_r + 3, YELLOW)
 
 
 def fetch_channel_avatar():
@@ -502,6 +536,7 @@ def fetch_channel_avatar():
     Fetch AVATAR_SIZE x AVATAR_SIZE raw RGB565 binary from backend
     (application/octet-stream, AVATAR_SIZE * AVATAR_SIZE * 2 bytes).
     No JSON parsing — read bytes directly and write_block().
+    After drawing, applies a circular yellow frame.
     """
     if not BACKEND_AVATAR_URL:
         return False
@@ -527,6 +562,7 @@ def fetch_channel_avatar():
         del buf
         gc.collect()
         print("Avatar drawn:", AVATAR_SIZE, "x", AVATAR_SIZE)
+        draw_avatar_frame()
         return True
     except Exception as e:
         print("Avatar fetch/draw error:", e)
@@ -611,23 +647,37 @@ def update_menu_selection(old_index, new_index):
 
 
 # ─── CLOCK ───────────────────────────────────────────────────────────────────
+def draw_clock_static_digits():
+    """Clear the full clock area and draw only HH and MM at fixed positions.
+    The colon column is left black — call draw_clock_colon() separately."""
+    t      = get_local_time()
+    hour   = t[3]
+    minute = t[4]
+    display.fill_rect(40, 184, 160, 32, BLACK)
+    display.ua_text("{:02d}".format(hour),   57,  186, CYAN, BLACK, 3)
+    display.ua_text("{:02d}".format(minute), 129, 186, CYAN, BLACK, 3)
+
+
+def draw_clock_colon(visible):
+    """Redraw only the colon column — does not touch HH or MM digits."""
+    display.fill_rect(108, 186, 24, 24, BLACK)
+    if visible:
+        display.ua_text(":", 111, 186, CYAN, BLACK, 3)
+
+
 def draw_clock(colon_visible=True):
-    """Draw HH:MM (or HH MM when colon hidden) centred at y=184 (scale=3).
-    Only the clock area is cleared — no full screen redraw."""
-    t   = get_local_time()
-    sep = ":" if colon_visible else " "
-    txt = "{:02d}{}{:02d}".format(t[3], sep, t[4])
-    display.fill_rect(40, 182, 160, 32, BLACK)
-    display.ua_text(txt, center_x(txt, 3), 184, CYAN, BLACK, 3)
+    """Convenience wrapper: draw static digits then the colon."""
+    draw_clock_static_digits()
+    draw_clock_colon(colon_visible)
 
 
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
 def draw_subscriber_number():
-    display.fill_rect(35, 120, 170, 28, BLACK)
+    display.fill_rect(35, 124, 170, 28, BLACK)
     count_text = str(subscriber_count)
     count_w    = len(count_text) * 6 * 3
     count_x    = (240 - count_w) // 2
-    display.ua_text(count_text, count_x, 120, GREEN, BLACK, 3)
+    display.ua_text(count_text, count_x, 124, GREEN, BLACK, 3)
 
 
 def draw_subscribers_page():
@@ -637,11 +687,11 @@ def draw_subscribers_page():
     draw_header("")
     # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
     display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
-    # Subscriber number below avatar (y=120)
+    # Subscriber number below avatar (y=124)
     draw_subscriber_number()
-    # Label below number (y=154)
-    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 154, YELLOW, BLACK, 1)
-    # Clock at bottom (y=184)
+    # Label below number (y=158)
+    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 158, YELLOW, BLACK, 1)
+    # Clock at bottom (y=186)
     draw_clock()
     # Fetch data
     fetch_youtube_subscribers()
@@ -1060,6 +1110,7 @@ print("=================================")
 # ─── CLOCK STATE ─────────────────────────────────────────────────────────────
 _clock_colon_visible = True   # current colon blink state
 _last_colon_blink_ms = 0      # last time colon was toggled
+_last_clock_minute   = -1     # last drawn minute — triggers digit redraw on change
 
 # ─── MAIN LOOP ───────────────────────────────────────────────────────────────
 while True:
@@ -1087,12 +1138,20 @@ while True:
             if fetch_youtube_subscribers():
                 draw_subscriber_number()
 
-        # Blink colon every 500 ms — only redraws the clock area
+        # Redraw static digits when minute changes; blink only colon every 500 ms
+        _local = get_local_time()
+        _current_minute = _local[4]
+        if _current_minute != _last_clock_minute:
+            _last_clock_minute   = _current_minute
+            _clock_colon_visible = True
+            draw_clock_static_digits()
+            draw_clock_colon(True)
+
         now_ms = time.ticks_ms()
         if time.ticks_diff(now_ms, _last_colon_blink_ms) > 500:
             _last_colon_blink_ms = now_ms
             _clock_colon_visible = not _clock_colon_visible
-            draw_clock(_clock_colon_visible)
+            draw_clock_colon(_clock_colon_visible)
 
     sw_now = enc_sw.value()
     if last_sw == 1 and sw_now == 0:
