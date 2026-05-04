@@ -1,6 +1,7 @@
 from machine import Pin, SPI
 import time
 import network
+import ntptime
 import urequests
 import ujson
 import gc
@@ -28,7 +29,8 @@ BACKEND_SUBSCRIBERS_URL = "https://bfu-youytube-production.up.railway.app/api/su
 BACKEND_AVATAR_URL      = "https://bfu-youytube-production.up.railway.app/api/avatar-rgb565"
 DEVICE_API_TOKEN        = "BFU_ESP32_YT_9kP7xQ_2026"
 
-YOUTUBE_UPDATE_MS = 60000  # Refresh interval in milliseconds (60 seconds)
+YOUTUBE_UPDATE_MS    = 60000  # Refresh interval in milliseconds (60 seconds)
+UK_TIME_OFFSET_HOURS = 1      # UTC+1 for BST; change to 0 for GMT
 
 # ─── WI-FI SETUP PORTAL ──────────────────────────────────────────────────────
 AP_SSID     = "BFU-SETUP"
@@ -418,6 +420,7 @@ def connect_saved_wifi():
             ip = wlan.ifconfig()[0]
             wifi_status_text = "WI-FI OK"
             print("Auto-connected:", ip)
+            sync_time()
             return True
         else:
             wifi_status_text = "WI-FI ПОМИЛКА"
@@ -427,6 +430,16 @@ def connect_saved_wifi():
         print("connect_saved_wifi error:", e)
         wifi_status_text = "WI-FI ПОМИЛКА"
         return False
+
+
+# ─── NTP TIME SYNC ───────────────────────────────────────────────────────────
+def sync_time():
+    """Sync RTC from NTP. Safe — does not crash if NTP is unreachable."""
+    try:
+        ntptime.settime()
+        print("NTP time synced")
+    except Exception as e:
+        print("NTP sync failed:", e)
 
 
 # ─── UTILITY ─────────────────────────────────────────────────────────────────
@@ -586,6 +599,15 @@ def update_menu_selection(old_index, new_index):
     draw_menu_item(new_index)
 
 
+# ─── CLOCK ───────────────────────────────────────────────────────────────────
+def draw_clock():
+    """Draw HH:MM centred at y=185, clearing only the clock area first."""
+    t    = time.localtime(time.time() + UK_TIME_OFFSET_HOURS * 3600)
+    txt  = "{:02d}:{:02d}".format(t[3], t[4])
+    display.fill_rect(70, 184, 100, 20, BLACK)
+    display.ua_text(txt, center_x(txt, 2), 185, CYAN, BLACK, 2)
+
+
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
 def draw_subscriber_number():
     display.fill_rect(35, 132, 170, 28, BLACK)
@@ -595,24 +617,21 @@ def draw_subscriber_number():
     display.ua_text(count_text, count_x, 132, GREEN, BLACK, 3)
 
 
-def draw_subscriber_status():
-    display.fill_rect(35, 180, 170, 12, BLACK)
-    display.ua_text(youtube_status_text, center_x(youtube_status_text, 1), 180, WHITE, BLACK, 1)
-
-
 def draw_subscribers_page():
     global screen_mode
     screen_mode = "SUBSCRIBERS"
     display.fill(BLACK)
     draw_header("")
+    # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
     display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
+    # Label
     display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 160, YELLOW, BLACK, 1)
     draw_subscriber_number()
-    draw_subscriber_status()
-    draw_back_footer()
+    # No footer, no status text — clock occupies the bottom area
+    draw_clock()
+    # Fetch data
     fetch_youtube_subscribers()
     draw_subscriber_number()
-    draw_subscriber_status()
     fetch_channel_avatar()
 
 
@@ -833,6 +852,7 @@ def connect_to_selected_wifi(ssid, password):
             wifi_status_text = "WI-FI OK"
             print("WiFi connected:", ip)
             save_wifi_config(ssid, password)
+            sync_time()
             stop_wifi_setup_portal()
             draw_wifi_result_page(True, ip)
             return True
@@ -1023,6 +1043,9 @@ print("WEB SETUP = http://" + AP_IP)
 print("ENCODER THRESHOLD =", ENCODER_THRESHOLD)
 print("=================================")
 
+# ─── CLOCK STATE ─────────────────────────────────────────────────────────────
+_last_clock_minute = -1   # tracks last drawn minute to avoid unnecessary redraws
+
 # ─── MAIN LOOP ───────────────────────────────────────────────────────────────
 while True:
     handle_wifi_portal()
@@ -1044,10 +1067,16 @@ while True:
         last_clk = clk_now
 
     if screen_mode == "SUBSCRIBERS":
+        # Refresh subscriber count every YOUTUBE_UPDATE_MS
         if time.ticks_diff(time.ticks_ms(), last_youtube_update) > YOUTUBE_UPDATE_MS:
             if fetch_youtube_subscribers():
                 draw_subscriber_number()
-                draw_subscriber_status()
+
+        # Redraw clock only when the minute changes
+        _now_min = time.localtime(time.time() + UK_TIME_OFFSET_HOURS * 3600)[4]
+        if _now_min != _last_clock_minute:
+            _last_clock_minute = _now_min
+            draw_clock()
 
     sw_now = enc_sw.value()
     if last_sw == 1 and sw_now == 0:

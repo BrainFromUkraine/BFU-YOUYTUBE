@@ -2,38 +2,41 @@
 
 ## Overview
 
-The **Railway backend** is the recommended production method for the BFU YouTube Subscriber Counter. Instead of storing your YouTube API key directly in the ESP32 firmware, you deploy a small FastAPI server to [Railway](https://railway.app/). The ESP32 calls your backend URL, and the backend calls YouTube on its behalf.
+The **Railway backend** is the **required** architecture for BFU YouTube Subscriber Counter. The ESP32-C3 firmware does not support direct YouTube API calls — all data is fetched through the Railway proxy.
 
 ```
-ESP32  ──►  https://your-app.up.railway.app/api/subscribers  ──►  YouTube Data API v3
+ESP32-C3  ──►  https://your-app.up.railway.app/api/subscribers   ──►  YouTube Data API v3
+ESP32-C3  ──►  https://your-app.up.railway.app/api/avatar-rgb565 ──►  YouTube channel avatar
 ```
 
-**Why use the backend?**
+**Why Railway backend?**
 
 | Concern | Direct API (firmware) | Railway backend |
 |---|---|---|
-| API key location | Inside ESP32 firmware | Railway environment variable only |
-| Key exposure risk | High (anyone with the `.py` file) | None (never leaves the server) |
+| API key location | Inside ESP32 firmware | Railway env vars only |
+| Key leak risk | High (anyone with the `.py` file) | None (key never leaves server) |
 | Caching | None — every refresh hits YouTube | Built-in (default 30 s) |
 | Quota usage | 1 unit per ESP32 refresh | 1 unit per cache window |
 | Reliability | Fails if YouTube is slow | Returns stale cache if YouTube is down |
+| Avatar | Not supported | Binary RGB565, 2048 bytes, memory-safe |
 
-> ⚠️ **Note:** The YouTube Data API v3 returns a **public subscriber count**, which YouTube intentionally rounds for channels with more than 1,000 subscribers. This is a YouTube platform limitation and cannot be changed by the backend or the firmware.
+> ⚠️ **Note:** YouTube Data API v3 returns the **public subscriber count**, which YouTube intentionally rounds for channels with more than 1,000 subscribers. This is a YouTube platform limitation and cannot be changed by the backend or firmware.
 
 ---
 
 ## Backend Files
 
-All backend files live in the `backend/` folder:
+All backend files are in the `backend/` folder:
 
 ```
 backend/
 ├── main.py            ← FastAPI application
-├── requirements.txt   ← Python dependencies
+├── requirements.txt   ← Python dependencies (includes Pillow>=11.0.0)
+├── runtime.txt        ← Python version pin for Railway (python-3.12.8)
 ├── Procfile           ← Railway start command
 ├── .env.example       ← Template for local development
 ├── .gitignore         ← Excludes .env from git
-└── README.md          ← Backend-specific readme
+└── README.md          ← Backend README
 ```
 
 ---
@@ -48,7 +51,7 @@ backend/
 6. Click **Create Credentials → API key**
 7. Copy the generated key
 
-> The free quota is **10,000 units/day**. With 30-second caching, even continuous ESP32 polling results in at most ~2,880 API calls/day — well within the free tier.
+> The free quota is **10,000 units/day**. With 30-second caching, even continuous ESP32 polling produces at most ~2,880 API requests/day — well within the free tier.
 
 ---
 
@@ -58,7 +61,7 @@ backend/
 2. Go to [railway.app](https://railway.app/) and sign in.
 3. Click **New Project → Deploy from GitHub repo**.
 4. Select your repository.
-5. In the Railway project settings, set the **Root Directory** to `backend`.
+5. In the Railway project settings, set **Root Directory** to `backend`.
 6. Go to the **Variables** tab and add:
 
    | Variable | Value |
@@ -68,28 +71,27 @@ backend/
    | `CACHE_TTL_SECONDS` | `30` (optional, default is 30) |
    | `DEVICE_API_TOKEN` | A random secret token (optional) |
 
-7. Railway will detect the `Procfile` and deploy automatically.
-8. Your endpoint will be available at:
+7. Railway will automatically detect `Procfile` and deploy the app.
+8. Your endpoints will be available at:
    ```
    https://YOUR-APP-NAME.up.railway.app/api/subscribers
+   https://YOUR-APP-NAME.up.railway.app/api/avatar-rgb565
    ```
 
 ---
 
 ## Step 3 — Configure the ESP32 Firmware
 
-Open `src/main.py` and update the backend URL constants near the top of the file:
+Open `src/main.py` and update the backend URL constants at the top of the file:
 
 ```python
-# ─── BACKEND URL (Railway proxy) ─────────────────────────────────────────────
-# Set this to your Railway backend URL.
-# Leave YOUTUBE_API_KEY as the placeholder — the key lives on the server, not here.
+# ─── RAILWAY BACKEND ─────────────────────────────────────────────────────────
 BACKEND_SUBSCRIBERS_URL = "https://YOUR-APP-NAME.up.railway.app/api/subscribers"
 BACKEND_AVATAR_URL      = "https://YOUR-APP-NAME.up.railway.app/api/avatar-rgb565"
 DEVICE_API_TOKEN        = ""   # Set if you enabled token auth on the backend
 ```
 
-> If you enabled `DEVICE_API_TOKEN` on the backend, set the same value in `DEVICE_API_TOKEN` in the firmware. The ESP32 will send it as the `X-Device-Token` header.
+> If you enabled `DEVICE_API_TOKEN` on the backend — set the same value in `DEVICE_API_TOKEN` in the firmware. The ESP32 will automatically send it as an `X-Device-Token` header with every request.
 
 ---
 
@@ -112,7 +114,7 @@ Expected response:
 }
 ```
 
-Then test the subscriber endpoint:
+Then check the subscriber endpoint:
 ```
 https://YOUR-APP-NAME.up.railway.app/api/subscribers
 ```
@@ -154,16 +156,16 @@ Open: [http://localhost:8000/api/subscribers](http://localhost:8000/api/subscrib
 
 ---
 
-## Optional: Device Token Authentication
+## Optional: Device Token Auth
 
-To prevent unauthorised access to your backend endpoint:
+To protect the backend endpoints from unauthorised access:
 
 1. Generate a random token:
    ```bash
    # PowerShell
    -join ((65..90) + (97..122) + (48..57) | Get-Random -Count 32 | % {[char]$_})
    ```
-2. Set `DEVICE_API_TOKEN=your_token` in Railway Variables.
+2. Set `DEVICE_API_TOKEN=your_token` in Railway variables.
 3. Set `DEVICE_API_TOKEN = "your_token"` in `src/main.py`.
 4. The ESP32 will automatically send `X-Device-Token: your_token` with every request.
 
@@ -172,34 +174,36 @@ To prevent unauthorised access to your backend endpoint:
 ## How Caching Works
 
 ```
-Request 1 (t=0s)   → cache miss  → fetch YouTube API → cache result → return fresh data
+Request 1 (t=0s)   → cache miss  → fetch from YouTube API → cache → return fresh data
 Request 2 (t=10s)  → cache hit   → return cached data (no YouTube call)
 Request 3 (t=25s)  → cache hit   → return cached data (no YouTube call)
-Request 4 (t=35s)  → cache miss  → fetch YouTube API → cache result → return fresh data
+Request 4 (t=35s)  → cache miss  → fetch from YouTube API → cache → return fresh data
 ```
 
 If the YouTube API is temporarily unavailable, the backend returns the last cached value with `"stale": true`. If there is no cache at all, it returns HTTP 503 with `"ok": false`.
 
 ---
 
-## Environment Variables Reference
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `YOUTUBE_API_KEY` | ✅ Yes | — | YouTube Data API v3 key |
-| `YOUTUBE_CHANNEL_ID` | ✅ Yes | — | Channel ID starting with `UC` |
-| `CACHE_TTL_SECONDS` | No | `30` | Cache duration in seconds |
-| `DEVICE_API_TOKEN` | No | *(disabled)* | If set, ESP32 must send matching `X-Device-Token` header |
-
----
-
 ## API Endpoints
 
 ### `GET /api/subscribers`
-Returns the subscriber count. Used by the ESP32 for the main counter display.
+Returns the subscriber count as JSON. Used by the ESP32 for the main counter display.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "channel_id": "UCxxxxx",
+  "subscribers": 4670,
+  "source": "youtube_data_api",
+  "updated_at": "2024-01-01T12:00:00+00:00",
+  "note": "Public YouTube count may be rounded",
+  "stale": false
+}
+```
 
 ### `GET /api/channel`
-Returns channel title, subscriber count, and avatar URL. Same cache as `/api/subscribers`.
+Returns channel title, subscriber count, and avatar URL. Uses the same cache as `/api/subscribers`.
 
 **Response:**
 ```json
@@ -215,28 +219,46 @@ Returns channel title, subscriber count, and avatar URL. Same cache as `/api/sub
 ```
 
 ### `GET /api/avatar-rgb565`
-Downloads the channel avatar, resizes it to **64×64 pixels**, converts each pixel to **RGB565** format, and returns a JSON array of hex pixel strings. The conversion is cached on the server — it only runs once per unique avatar URL.
+Downloads the channel avatar, crops to square, resizes to **32×32 pixels**, converts each pixel to big-endian **RGB565**, and returns the raw bytes as `application/octet-stream`.
 
 **Response:**
-```json
-{
-  "ok": true,
-  "width": 64,
-  "height": 64,
-  "pixels": ["FFFF", "0000", "F800", "..."]
-}
-```
+- Content-Type: `application/octet-stream`
+- Body: `32 × 32 × 2 = 2048 bytes` of raw RGB565 data
+- Header: `X-Avatar-Size: 32`
 
-The ESP32 firmware calls this endpoint once when the subscriber screen opens, converts the hex strings to a `bytearray`, and renders the avatar using `display.write_block()`. The pixel list is freed from RAM immediately after drawing.
+**Why binary instead of JSON?**
+
+The previous JSON approach returned a list of 4096 hex strings (e.g. `["FFFF", "0000", ...]`). Parsing this on the ESP32-C3 required:
+- Allocating the full JSON string in RAM
+- Building a Python list of 4096 strings
+- Converting each string with `int(px, 16)` in a loop
+- Building a separate `bytearray`
+
+This exceeded the ESP32-C3's available heap and caused boot failures.
+
+The binary approach sends exactly 2048 bytes. The ESP32 reads `response.content` directly into a `bytearray` and passes it to `display.write_block()` — no parsing, no intermediate list, no conversion loop. The buffer is freed with `del buf; gc.collect()` immediately after rendering.
+
+**Conversion is cached on the server** — performed only once per unique avatar URL.
 
 ### `GET /`
-Health check — returns service status and configuration summary.
+Service health check — returns status and configuration summary.
+
+---
+
+## Environment Variable Reference
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `YOUTUBE_API_KEY` | ✅ Yes | — | YouTube Data API v3 key |
+| `YOUTUBE_CHANNEL_ID` | ✅ Yes | — | Channel ID starting with `UC` |
+| `CACHE_TTL_SECONDS` | No | `30` | Cache duration in seconds |
+| `DEVICE_API_TOKEN` | No | *(disabled)* | If set, ESP32 must send matching `X-Device-Token` header |
 
 ---
 
 ## Security Notes
 
-- `YOUTUBE_API_KEY` is stored only in Railway environment variables — never in code or on the ESP32.
+- `YOUTUBE_API_KEY` is stored only in Railway variables — never in code or on the ESP32.
 - The `.env` file is listed in `backend/.gitignore` and will never be committed.
 - Logs do not print API keys or tokens.
 - `DEVICE_API_TOKEN` is optional but recommended for production deployments.
