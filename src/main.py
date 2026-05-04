@@ -492,9 +492,9 @@ def fetch_youtube_subscribers():
 
 
 # ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
-AVATAR_X    = 96   # centred: (240-48)//2
-AVATAR_Y    = 48
-AVATAR_SIZE = 48   # must match backend AVATAR_SIZE
+AVATAR_X    = 92   # centred: (240-56)//2
+AVATAR_Y    = 42
+AVATAR_SIZE = 56   # must match backend AVATAR_SIZE
 
 
 def fetch_channel_avatar():
@@ -611,21 +611,23 @@ def update_menu_selection(old_index, new_index):
 
 
 # ─── CLOCK ───────────────────────────────────────────────────────────────────
-def draw_clock():
-    """Draw HH:MM centred at y=178 (scale=3), clearing only the clock area first."""
-    t    = get_local_time()
-    txt  = "{:02d}:{:02d}".format(t[3], t[4])
-    display.fill_rect(40, 176, 160, 32, BLACK)
-    display.ua_text(txt, center_x(txt, 3), 178, CYAN, BLACK, 3)
+def draw_clock(colon_visible=True):
+    """Draw HH:MM (or HH MM when colon hidden) centred at y=184 (scale=3).
+    Only the clock area is cleared — no full screen redraw."""
+    t   = get_local_time()
+    sep = ":" if colon_visible else " "
+    txt = "{:02d}{}{:02d}".format(t[3], sep, t[4])
+    display.fill_rect(40, 182, 160, 32, BLACK)
+    display.ua_text(txt, center_x(txt, 3), 184, CYAN, BLACK, 3)
 
 
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
 def draw_subscriber_number():
-    display.fill_rect(35, 112, 170, 28, BLACK)
+    display.fill_rect(35, 120, 170, 28, BLACK)
     count_text = str(subscriber_count)
     count_w    = len(count_text) * 6 * 3
     count_x    = (240 - count_w) // 2
-    display.ua_text(count_text, count_x, 112, GREEN, BLACK, 3)
+    display.ua_text(count_text, count_x, 120, GREEN, BLACK, 3)
 
 
 def draw_subscribers_page():
@@ -635,11 +637,11 @@ def draw_subscribers_page():
     draw_header("")
     # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
     display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
-    # Subscriber number below avatar (y=112)
+    # Subscriber number below avatar (y=120)
     draw_subscriber_number()
-    # Label below number (y=146)
-    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 146, YELLOW, BLACK, 1)
-    # Clock at bottom (y=178)
+    # Label below number (y=154)
+    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 154, YELLOW, BLACK, 1)
+    # Clock at bottom (y=184)
     draw_clock()
     # Fetch data
     fetch_youtube_subscribers()
@@ -1056,7 +1058,8 @@ print("ENCODER THRESHOLD =", ENCODER_THRESHOLD)
 print("=================================")
 
 # ─── CLOCK STATE ─────────────────────────────────────────────────────────────
-_last_clock_minute = -1   # tracks last drawn minute to avoid unnecessary redraws
+_clock_colon_visible = True   # current colon blink state
+_last_colon_blink_ms = 0      # last time colon was toggled
 
 # ─── MAIN LOOP ───────────────────────────────────────────────────────────────
 while True:
@@ -1084,11 +1087,12 @@ while True:
             if fetch_youtube_subscribers():
                 draw_subscriber_number()
 
-        # Redraw clock only when the minute changes
-        _now_min = get_local_time()[4]
-        if _now_min != _last_clock_minute:
-            _last_clock_minute = _now_min
-            draw_clock()
+        # Blink colon every 500 ms — only redraws the clock area
+        now_ms = time.ticks_ms()
+        if time.ticks_diff(now_ms, _last_colon_blink_ms) > 500:
+            _last_colon_blink_ms = now_ms
+            _clock_colon_visible = not _clock_colon_visible
+            draw_clock(_clock_colon_visible)
 
     sw_now = enc_sw.value()
     if last_sw == 1 and sw_now == 0:
