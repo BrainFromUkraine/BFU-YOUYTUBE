@@ -646,6 +646,15 @@ def update_menu_selection(old_index, new_index):
     draw_menu_item(new_index)
 
 
+# ─── CLOCK LAYOUT (scale=3) ──────────────────────────────────────────────────
+# char_w=18, HH=36, colon=18, MM=36, total=90
+# clock_x = (240-90)//2 = 75
+_CLOCK_HH_X    = 75   # left edge of HH digits
+_CLOCK_COLON_X = 111  # left edge of colon  (75+36)
+_CLOCK_MM_X    = 129  # left edge of MM digits (75+36+18)
+_CLOCK_Y       = 186  # top of clock text
+
+
 # ─── CLOCK ───────────────────────────────────────────────────────────────────
 def draw_clock_static_digits():
     """Clear the full clock area and draw only HH and MM at fixed positions.
@@ -653,16 +662,16 @@ def draw_clock_static_digits():
     t      = get_local_time()
     hour   = t[3]
     minute = t[4]
-    display.fill_rect(40, 184, 160, 32, BLACK)
-    display.ua_text("{:02d}".format(hour),   57,  186, CYAN, BLACK, 3)
-    display.ua_text("{:02d}".format(minute), 129, 186, CYAN, BLACK, 3)
+    display.fill_rect(60, 184, 120, 32, BLACK)
+    display.ua_text("{:02d}".format(hour),   _CLOCK_HH_X, _CLOCK_Y, CYAN, BLACK, 3)
+    display.ua_text("{:02d}".format(minute), _CLOCK_MM_X, _CLOCK_Y, CYAN, BLACK, 3)
 
 
 def draw_clock_colon(visible):
     """Redraw only the colon column — does not touch HH or MM digits."""
-    display.fill_rect(108, 186, 24, 24, BLACK)
+    display.fill_rect(_CLOCK_COLON_X, _CLOCK_Y, 18, 24, BLACK)
     if visible:
-        display.ua_text(":", 111, 186, CYAN, BLACK, 3)
+        display.ua_text(":", _CLOCK_COLON_X, _CLOCK_Y, CYAN, BLACK, 3)
 
 
 def draw_clock(colon_visible=True):
