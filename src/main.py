@@ -601,11 +601,11 @@ def update_menu_selection(old_index, new_index):
 
 # ─── CLOCK ───────────────────────────────────────────────────────────────────
 def draw_clock():
-    """Draw HH:MM centred at y=185, clearing only the clock area first."""
+    """Draw HH:MM centred at y=178 (scale=3), clearing only the clock area first."""
     t    = time.localtime(time.time() + UK_TIME_OFFSET_HOURS * 3600)
     txt  = "{:02d}:{:02d}".format(t[3], t[4])
-    display.fill_rect(70, 184, 100, 20, BLACK)
-    display.ua_text(txt, center_x(txt, 2), 185, CYAN, BLACK, 2)
+    display.fill_rect(40, 176, 160, 32, BLACK)
+    display.ua_text(txt, center_x(txt, 3), 178, CYAN, BLACK, 3)
 
 
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
