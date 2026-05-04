@@ -1,0 +1,19 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Secrets / local config — NEVER commit these
+.env
+secrets.py
+config.py
+
+# macOS
+.DS_Store
+
+# Editor directories
+.vscode/
+.idea/
+
+# MicroPython compiled bytecode
+*.mpy
