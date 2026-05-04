@@ -627,16 +627,17 @@ def update_menu_selection(old_index, new_index):
 
 
 # ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
-AVATAR_X    = 88   # top-left x of 64x64 avatar on display
-AVATAR_Y    = 50   # top-left y of 64x64 avatar on display
-AVATAR_SIZE = 64   # must match backend AVATAR_SIZE
+AVATAR_X    = 104  # top-left x of 32x32 avatar on display (centred: (240-32)//2)
+AVATAR_Y    = 55   # top-left y of 32x32 avatar on display
+AVATAR_SIZE = 32   # must match backend AVATAR_SIZE
 
 
 def fetch_channel_avatar():
     """
-    Fetch 64x64 RGB565 pixel array from backend and draw it on the display.
-    Returns True on success, False on failure (caller shows page without avatar).
-    Memory: processes pixels into bytearray, then discards the list.
+    Fetch 32x32 raw RGB565 binary from backend and draw it on the display.
+    Backend returns application/octet-stream: 32*32*2 = 2048 bytes.
+    No JSON parsing, no pixel list — just read bytes and write_block().
+    Returns True on success, False on failure (page still shows subscriber count).
     """
     if not BACKEND_AVATAR_URL:
         return False
@@ -648,33 +649,18 @@ def fetch_channel_avatar():
         if DEVICE_API_TOKEN:
             headers["X-Device-Token"] = DEVICE_API_TOKEN
         response = urequests.get(BACKEND_AVATAR_URL, headers=headers)
-        data     = response.json()
+        buf      = response.content   # bytearray of raw RGB565 bytes
         response.close()
         gc.collect()
 
-        if not data.get("ok"):
-            print("Avatar fetch error:", data.get("error", "unknown"))
+        if len(buf) != AVATAR_SIZE * AVATAR_SIZE * 2:
+            print("Avatar size mismatch:", len(buf))
             return False
 
-        pixels = data["pixels"]   # list of "FFFF" hex strings
-        w      = int(data.get("width",  AVATAR_SIZE))
-        h      = int(data.get("height", AVATAR_SIZE))
-
-        # Convert hex strings to big-endian RGB565 bytearray
-        buf = bytearray(w * h * 2)
-        for i, px in enumerate(pixels):
-            val       = int(px, 16)
-            buf[i*2]     = (val >> 8) & 0xFF
-            buf[i*2 + 1] = val & 0xFF
-
-        # Free the pixel list before drawing
-        del pixels
-        gc.collect()
-
-        display.write_block(AVATAR_X, AVATAR_Y, w, h, buf)
+        display.write_block(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, buf)
         del buf
         gc.collect()
-        print("Avatar drawn:", w, "x", h)
+        print("Avatar drawn:", AVATAR_SIZE, "x", AVATAR_SIZE)
         return True
 
     except Exception as e:

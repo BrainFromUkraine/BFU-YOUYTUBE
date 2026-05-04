@@ -17,7 +17,7 @@ import logging
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from PIL import Image
 
 # ─── LOGGING ─────────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ DEVICE_API_TOKEN   = os.environ.get("DEVICE_API_TOKEN", "")
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/channels"
 REQUEST_TIMEOUT = 10  # seconds
 
-AVATAR_SIZE = 64  # pixels — must match ESP32 firmware
+AVATAR_SIZE = 32  # pixels — must match ESP32 firmware
 
 # ─── IN-MEMORY CACHE ─────────────────────────────────────────────────────────
 _cache: dict = {
@@ -47,12 +47,10 @@ _cache: dict = {
     "timestamp": 0.0,
 }
 
-# Avatar pixel cache — converted once, reused until avatar_url changes
+# Avatar binary cache — converted once, reused until avatar_url changes
 _avatar_cache: dict = {
     "url": None,
-    "pixels": None,   # list of hex strings e.g. ["FFFF", "0000", ...]
-    "width": AVATAR_SIZE,
-    "height": AVATAR_SIZE,
+    "data": None,   # raw RGB565 bytes (AVATAR_SIZE * AVATAR_SIZE * 2 bytes)
 }
 
 # ─── APP ─────────────────────────────────────────────────────────────────────
@@ -130,11 +128,11 @@ async def fetch_from_youtube() -> dict:
 
 
 # ─── AVATAR CONVERSION ───────────────────────────────────────────────────────
-async def convert_avatar_to_rgb565(url: str) -> list[str]:
+async def convert_avatar_to_rgb565_binary(url: str) -> bytes:
     """
     Download avatar image, resize to AVATAR_SIZE x AVATAR_SIZE,
-    convert each pixel to RGB565 hex string.
-    Returns list of hex strings like ["FFFF", "0000", ...].
+    convert to raw big-endian RGB565 bytes.
+    Returns bytes of length AVATAR_SIZE * AVATAR_SIZE * 2.
     """
     async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
         resp = await client.get(url)
@@ -144,23 +142,25 @@ async def convert_avatar_to_rgb565(url: str) -> list[str]:
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
     # Crop to square from centre, then resize
-    w, h   = img.size
-    side   = min(w, h)
-    left   = (w - side) // 2
-    top    = (h - side) // 2
-    img    = img.crop((left, top, left + side, top + side))
-    img    = img.resize((AVATAR_SIZE, AVATAR_SIZE), Image.LANCZOS)
+    w, h = img.size
+    side = min(w, h)
+    left = (w - side) // 2
+    top  = (h - side) // 2
+    img  = img.crop((left, top, left + side, top + side))
+    img  = img.resize((AVATAR_SIZE, AVATAR_SIZE), Image.LANCZOS)
 
-    pixels = []
+    buf = bytearray(AVATAR_SIZE * AVATAR_SIZE * 2)
+    i   = 0
     for py in range(AVATAR_SIZE):
         for px in range(AVATAR_SIZE):
-            r, g, b = img.getpixel((px, py))
-            # RGB565: RRRRRGGGGGGBBBBB
-            rgb565 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
-            pixels.append(f"{rgb565:04X}")
+            r, g, b    = img.getpixel((px, py))
+            rgb565     = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)
+            buf[i]     = (rgb565 >> 8) & 0xFF
+            buf[i + 1] = rgb565 & 0xFF
+            i += 2
 
-    logger.info("Avatar converted: %d pixels from %s", len(pixels), url)
-    return pixels
+    logger.info("Avatar converted to binary: %d bytes from %s", len(buf), url)
+    return bytes(buf)
 
 
 # ─── SHARED CACHE REFRESH ────────────────────────────────────────────────────
@@ -317,13 +317,17 @@ async def get_channel(request: Request):
         })
 
 
-@app.get("/api/avatar-rgb565", summary="Get channel avatar as RGB565 pixel array")
+@app.get("/api/avatar-rgb565", summary="Get channel avatar as raw RGB565 binary")
 async def get_avatar_rgb565(request: Request):
     """
-    Downloads the channel avatar, resizes to 64x64, converts to RGB565,
-    and returns a JSON array of hex pixel strings.
-    The conversion result is cached until the avatar URL changes.
-    ESP32 can call this once and render the avatar directly using write_block().
+    Downloads the channel avatar, resizes to AVATAR_SIZE x AVATAR_SIZE (32x32),
+    converts to raw big-endian RGB565 bytes, and returns them as application/octet-stream.
+
+    Response body: AVATAR_SIZE * AVATAR_SIZE * 2 bytes (2048 bytes for 32x32).
+    No JSON wrapper — the ESP32 reads response.content directly into a bytearray
+    and passes it to display.write_block().
+
+    The conversion result is cached on the server until the avatar URL changes.
     """
     check_device_token(request)
 
@@ -346,29 +350,25 @@ async def get_avatar_rgb565(request: Request):
             "error": "No avatar URL available for this channel",
         })
 
-    # Return cached conversion if URL hasn't changed
-    if _avatar_cache["url"] == avatar_url and _avatar_cache["pixels"] is not None:
-        logger.info("Returning cached avatar RGB565 (%d pixels)", len(_avatar_cache["pixels"]))
-        return JSONResponse(content={
-            "ok": True,
-            "width": _avatar_cache["width"],
-            "height": _avatar_cache["height"],
-            "pixels": _avatar_cache["pixels"],
-        })
+    # Return cached binary if URL hasn't changed
+    if _avatar_cache["url"] == avatar_url and _avatar_cache["data"] is not None:
+        logger.info("Returning cached avatar binary (%d bytes)", len(_avatar_cache["data"]))
+        return Response(
+            content=_avatar_cache["data"],
+            media_type="application/octet-stream",
+            headers={"X-Avatar-Size": str(AVATAR_SIZE)},
+        )
 
-    # Convert avatar
+    # Convert avatar to raw binary
     try:
-        pixels = await convert_avatar_to_rgb565(avatar_url)
-        _avatar_cache["url"]    = avatar_url
-        _avatar_cache["pixels"] = pixels
-        _avatar_cache["width"]  = AVATAR_SIZE
-        _avatar_cache["height"] = AVATAR_SIZE
-        return JSONResponse(content={
-            "ok": True,
-            "width": AVATAR_SIZE,
-            "height": AVATAR_SIZE,
-            "pixels": pixels,
-        })
+        raw = await convert_avatar_to_rgb565_binary(avatar_url)
+        _avatar_cache["url"]  = avatar_url
+        _avatar_cache["data"] = raw
+        return Response(
+            content=raw,
+            media_type="application/octet-stream",
+            headers={"X-Avatar-Size": str(AVATAR_SIZE)},
+        )
     except Exception as e:
         logger.error("Avatar conversion failed: %s", e)
         return JSONResponse(status_code=502, content={
