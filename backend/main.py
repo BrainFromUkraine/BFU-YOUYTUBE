@@ -36,7 +36,7 @@ DEVICE_API_TOKEN   = os.environ.get("DEVICE_API_TOKEN", "")
 YOUTUBE_API_URL = "https://www.googleapis.com/youtube/v3/channels"
 REQUEST_TIMEOUT = 10  # seconds
 
-AVATAR_SIZE = 64  # pixels — must match ESP32 firmware
+AVATAR_SIZE = 72  # pixels — must match ESP32 firmware
 
 # ─── IN-MEMORY CACHE ─────────────────────────────────────────────────────────
 _cache: dict = {
@@ -320,10 +320,10 @@ async def get_channel(request: Request):
 @app.get("/api/avatar-rgb565", summary="Get channel avatar as raw RGB565 binary")
 async def get_avatar_rgb565(request: Request):
     """
-    Downloads the channel avatar, resizes to AVATAR_SIZE x AVATAR_SIZE (64x64),
+    Downloads the channel avatar, resizes to AVATAR_SIZE x AVATAR_SIZE (72x72),
     converts to raw big-endian RGB565 bytes, and returns them as application/octet-stream.
 
-    Response body: AVATAR_SIZE * AVATAR_SIZE * 2 bytes (8192 bytes for 64x64).
+    Response body: AVATAR_SIZE * AVATAR_SIZE * 2 bytes (10368 bytes for 72x72).
     No JSON wrapper — the ESP32 reads response.content directly into a bytearray
     and passes it to display.write_block().
 

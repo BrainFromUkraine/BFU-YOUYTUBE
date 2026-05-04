@@ -492,9 +492,9 @@ def fetch_youtube_subscribers():
 
 
 # ─── CHANNEL AVATAR ──────────────────────────────────────────────────────────
-AVATAR_X    = 88   # centred: (240-64)//2
-AVATAR_Y    = 48
-AVATAR_SIZE = 64   # must match backend AVATAR_SIZE
+AVATAR_X    = 84   # centred: (240-72)//2
+AVATAR_Y    = 44
+AVATAR_SIZE = 72   # must match backend AVATAR_SIZE
 
 
 def draw_circle_outline(cx, cy, r, color):
@@ -515,17 +515,18 @@ def draw_circle_outline(cx, cy, r, color):
 
 
 def draw_avatar_frame():
-    """Draw a yellow ring around the avatar and black corners to create a circular crop effect."""
-    cx = AVATAR_X + AVATAR_SIZE // 2
-    cy = AVATAR_Y + AVATAR_SIZE // 2
-    # Black out the four square corners outside the inner circle (r=32)
-    inner_r = AVATAR_SIZE // 2  # 32
+    """Draw a yellow ring around the avatar and black corners to create a circular crop effect.
+    Avatar centre: cx=120, cy=80. Inner radius=36, outer ring at r=37-39."""
+    cx      = 120  # AVATAR_X + AVATAR_SIZE // 2
+    cy      = 80   # AVATAR_Y + AVATAR_SIZE // 2
+    inner_r = AVATAR_SIZE // 2  # 36
+    # Black out the four square corners outside the inner circle
     for dy in range(AVATAR_SIZE):
         for dx in range(AVATAR_SIZE):
             dist2 = (dx - inner_r) * (dx - inner_r) + (dy - inner_r) * (dy - inner_r)
             if dist2 > inner_r * inner_r:
                 display.fill_rect(AVATAR_X + dx, AVATAR_Y + dy, 1, 1, BLACK)
-    # Yellow ring: draw concentric outlines at r=33 and r=34
+    # Yellow ring: draw concentric outlines at r=37, 38, 39
     draw_circle_outline(cx, cy, inner_r + 1, YELLOW)
     draw_circle_outline(cx, cy, inner_r + 2, YELLOW)
     draw_circle_outline(cx, cy, inner_r + 3, YELLOW)
@@ -682,11 +683,11 @@ def draw_clock(colon_visible=True):
 
 # ─── SUBSCRIBER PAGE ─────────────────────────────────────────────────────────
 def draw_subscriber_number():
-    display.fill_rect(35, 124, 170, 28, BLACK)
+    display.fill_rect(35, 128, 170, 28, BLACK)
     count_text = str(subscriber_count)
     count_w    = len(count_text) * 6 * 3
     count_x    = (240 - count_w) // 2
-    display.ua_text(count_text, count_x, 124, GREEN, BLACK, 3)
+    display.ua_text(count_text, count_x, 128, GREEN, BLACK, 3)
 
 
 def draw_subscribers_page():
@@ -696,10 +697,10 @@ def draw_subscribers_page():
     draw_header("")
     # Avatar placeholder (grey square) — replaced by avatar if fetch succeeds
     display.fill_rect(AVATAR_X, AVATAR_Y, AVATAR_SIZE, AVATAR_SIZE, DARK)
-    # Subscriber number below avatar (y=124)
+    # Subscriber number below avatar (y=128)
     draw_subscriber_number()
-    # Label below number (y=158)
-    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 158, YELLOW, BLACK, 1)
+    # Label below number (y=164)
+    display.ua_text("ПІДПИСНИКИ", center_x("ПІДПИСНИКИ", 1), 164, YELLOW, BLACK, 1)
     # Clock at bottom (y=186)
     draw_clock()
     # Fetch data
